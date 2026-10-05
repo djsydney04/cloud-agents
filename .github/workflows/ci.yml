@@ -1,0 +1,41 @@
+name: Verify
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked
+      - run: docker build -t cloud-agents-sandbox:0.1.0 sandbox
+      - run: python3 tests/integration.py
+  clients:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:desktop
+      - run: node --check ui/app.js && node --check desktop/main.cjs
+      - run: swift build --package-path native
+      - run: bash scripts/package-native.sh
+      - run: npm run package:desktop -- --dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

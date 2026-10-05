@@ -1,0 +1,16 @@
+/target/
+/node_modules/
+/dist/
+/native/.build/
+/playwright-report/
+/test-results/
+.DS_Store
+.env
+*.pem
+*.key
+/state/
+
+.playwright-cli/
+output/playwright/
+
+__pycache__/

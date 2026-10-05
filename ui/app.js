@@ -1,0 +1,249 @@
+/* One renderer shared by the browser and the isolated Electron window. */
+const $ = (id) => document.getElementById(id);
+let token = "",
+  endpoint = location.origin,
+  jobs = [],
+  selected = null,
+  connected = false,
+  polling = false;
+const desktop = window.cloudAgents;
+$("remember").parentElement.hidden = !desktop;
+$("endpoint").value = desktop ? "http://127.0.0.1:7420" : location.origin;
+$("endpoint").readOnly = !desktop;
+async function api(path, method = "GET", body) {
+  if (desktop) return desktop.request({ path, method, body });
+  const res = await fetch("/api" + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || `Host returned ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+function notice(message = "") {
+  $("notice").textContent = message;
+  $("notice").hidden = !message;
+}
+function connection(ok) {
+  connected = ok;
+  $("status-dot").classList.toggle("connected", ok);
+  $("connection-status").textContent = ok ? "Host connected" : "Not connected";
+  $("submit").disabled = !ok;
+}
+function renderList() {
+  $("run-count").textContent = jobs.length;
+  $("runs").replaceChildren();
+  if (!jobs.length) {
+    const p = document.createElement("p");
+    p.className = "muted empty-list";
+    p.textContent = "Your runs will appear here.";
+    $("runs").append(p);
+  }
+  for (const j of jobs) {
+    const b = document.createElement("button");
+    b.className = "run-item" + (j.id === selected ? " selected" : "");
+    const strong = document.createElement("strong");
+    strong.textContent = j.prompt;
+    const small = document.createElement("small");
+    const provider = document.createElement("span");
+    provider.textContent = j.provider;
+    const state = document.createElement("span");
+    state.textContent = j.status;
+    small.append(provider, state);
+    b.append(strong, small);
+    b.onclick = () => select(j.id);
+    $("runs").append(b);
+  }
+}
+function select(id) {
+  window.scrollTo({ top: 0, behavior: "instant" });
+  selected = id;
+  $("composer").hidden = !!id;
+  $("run-detail").hidden = !id;
+  renderList();
+  if (id) renderDetail();
+}
+async function renderDetail() {
+  const id = selected,
+    j = jobs.find((j) => j.id === id);
+  if (!j) return;
+  const active = ["queued", "starting", "running", "cancelling"].includes(
+    j.status,
+  );
+  $("run-provider").textContent = j.provider + " / " + j.id.slice(0, 8);
+  $("run-title").textContent = j.prompt;
+  $("run-state").textContent = j.status;
+  $("run-meta").textContent =
+    `${j.cpus} CPU · ${j.memory_mb} MB · ${new Date(j.created_at * 1000).toLocaleString()}${j.repository ? " · " + j.repository : ""}`;
+  $("run-error").hidden = !j.error;
+  $("run-error").textContent = j.error || "";
+  $("cancel").hidden = !active;
+  $("cancel").disabled = j.status === "cancelling";
+  $("delete").hidden = active;
+  $("download").disabled = active;
+  $("output-live").textContent = active ? " / LIVE" : "";
+  try {
+    const r = await api(`/jobs/${id}/logs`);
+    if (selected === id) {
+      const nearBottom =
+        $("output").scrollHeight -
+          $("output").scrollTop -
+          $("output").clientHeight <
+        50;
+      $("output").textContent = r.output;
+      if (nearBottom) $("output").scrollTop = $("output").scrollHeight;
+    }
+  } catch (e) {
+    notice(e.message);
+  }
+}
+async function refresh() {
+  if (!connected || polling) return;
+  polling = true;
+  try {
+    const [host, runs] = await Promise.all([api("/host"), api("/jobs")]);
+    jobs = runs;
+    renderList();
+    $("host-name").textContent = host.name;
+    $("version").textContent = "CLOUD AGENTS / " + host.version;
+    $("capacity").textContent =
+      `${host.used_cpus} / ${host.cpus} CPU · ${Math.round((host.used_memory_mb / 1024) * 10) / 10} / ${Math.round(host.memory_mb / 1024)} GB`;
+    $("credential-status").textContent =
+      `Codex: ${host.credentials.codex ? "ready" : "not connected"} · Claude: ${host.credentials.claude ? "ready" : "not connected"} · GitHub: ${host.credentials.github ? "token configured" : "public repositories"}`;
+    notice(
+      !host.health.docker_ready
+        ? "Docker is unavailable on your host. Start Docker to continue."
+        : !host.health.image_ready
+          ? "Build the sandbox image on your host before starting runs."
+          : "",
+    );
+    if (selected) await renderDetail();
+  } catch (e) {
+    notice("Connection interrupted: " + e.message);
+  } finally {
+    polling = false;
+  }
+}
+$("connect-form").onsubmit = async (event) => {
+  event.preventDefault();
+  $("connect-error").textContent = "";
+  try {
+    endpoint = $("endpoint").value;
+    token = $("token").value.trim();
+    if (desktop)
+      await desktop.connect({
+        endpoint,
+        token,
+        remember: $("remember").checked,
+      });
+    await api("/host");
+    connection(true);
+    $("settings").close();
+    $("token").value = "";
+    await refresh();
+  } catch (e) {
+    connection(false);
+    $("connect-error").textContent = e.message;
+  }
+};
+$("settings-button").onclick = () => $("settings").showModal();
+$("close-settings").onclick = () => $("settings").close();
+$("disconnect").onclick = async () => {
+  if (desktop) await desktop.disconnect();
+  token = "";
+  connection(false);
+  jobs = [];
+  select(null);
+  $("token").value = "";
+  $("settings").close();
+};
+$("new-run").onclick = () => select(null);
+$("smoke-choice").onclick = () => {
+  $("provider").value = "smoke";
+  $("prompt").value = "Verify this host and its sandbox isolation.";
+  $("memory").value = "256";
+  $("prompt").focus();
+};
+$("run-form").onsubmit = async (event) => {
+  event.preventDefault();
+  $("submit").disabled = true;
+  try {
+    const j = await api("/jobs", "POST", {
+      provider: $("provider").value,
+      prompt: $("prompt").value,
+      repository: $("repository").value.trim(),
+      cpus: Number($("cpus").value),
+      memory_mb: Number($("memory").value),
+      timeout_secs: Number($("timeout").value) * 60,
+    });
+    jobs.unshift(j);
+    select(j.id);
+    notice();
+  } catch (e) {
+    notice(e.message);
+  } finally {
+    $("submit").disabled = !connected;
+  }
+};
+$("cancel").onclick = async () => {
+  try {
+    await api(`/jobs/${selected}/cancel`, "POST");
+    await refresh();
+  } catch (e) {
+    notice(e.message);
+  }
+};
+$("delete").onclick = async () => {
+  if (!confirm("Delete this run and its workspace permanently?")) return;
+  try {
+    await api(`/jobs/${selected}`, "DELETE");
+    jobs = jobs.filter((j) => j.id !== selected);
+    select(null);
+  } catch (e) {
+    notice(e.message);
+  }
+};
+$("download").onclick = async () => {
+  try {
+    if (desktop) {
+      await desktop.exportWorkspace(selected);
+      return;
+    }
+    const r = await fetch(`/api/jobs/${selected}/archive`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) throw new Error("Export failed");
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cloud-agents-${selected}.tar.gz`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    notice(e.message);
+  }
+};
+connection(false);
+(async () => {
+  if (desktop) {
+    try {
+      const saved = await desktop.restore();
+      if (saved) {
+        $("endpoint").value = saved.endpoint;
+        connection(true);
+        await refresh();
+        return;
+      }
+    } catch (e) {
+      notice(e.message);
+    }
+  }
+  $("settings").showModal();
+})();
+setInterval(refresh, 2500);

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'"
+    />
+    <title>Cloud Agents</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%23171a16%27/%3E%3Cpath d=%27M16 23l12 9-12 9m19 0h13%27 stroke=%27%23c6eeaa%27 stroke-width=%274%27 fill=%27none%27/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#">cloud agents<span class="brand-mark">⌁</span></a
+      ><button id="new-run" class="primary">＋ New run</button>
+      <div class="section-label">WORKSPACE <span id="run-count">0</span></div>
+      <nav id="runs" aria-label="Runs">
+        <p class="muted empty-list">Your runs will appear here.</p>
+      </nav>
+      <button id="settings-button" class="settings">
+        ⚙ Connection & credentials
+      </button>
+      <div class="host-status">
+        <span id="status-dot"></span
+        ><span id="connection-status">Not connected</span>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">PERSONAL COMPUTE</span>
+          <div id="host-name">Your hardware, ready for work.</div>
+        </div>
+        <span id="capacity">—</span>
+      </header>
+      <div id="notice" role="status" hidden></div>
+      <section id="composer" class="workspace">
+        <div class="intro">
+          <span class="eyebrow">NEW RUN</span>
+          <h1>What are we building?</h1>
+          <p>Give an agent a task. Your host provides the workspace.</p>
+        </div>
+        <form id="run-form">
+          <label for="prompt">Task</label
+          ><textarea
+            id="prompt"
+            required
+            maxlength="32000"
+            placeholder="Describe the change, the repository context, and how to verify it…"
+          ></textarea>
+          <div class="form-row">
+            <div>
+              <label for="provider">Agent</label
+              ><select id="provider">
+                <option value="codex">Codex</option>
+                <option value="claude">Claude Code</option>
+                <option value="smoke">Local sandbox check</option>
+              </select>
+            </div>
+            <div class="repository-field">
+              <label for="repository"
+                >GitHub repository <span class="muted">optional</span></label
+              ><input
+                id="repository"
+                placeholder="https://github.com/you/project"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+          <details>
+            <summary>Run limits</summary>
+            <div class="form-row limits">
+              <div>
+                <label for="cpus">CPU cores</label
+                ><input
+                  id="cpus"
+                  type="number"
+                  min="1"
+                  max="128"
+                  value="1"
+                  required
+                />
+              </div>
+              <div>
+                <label for="memory">Memory · MB</label
+                ><input
+                  id="memory"
+                  type="number"
+                  min="256"
+                  value="2048"
+                  required
+                />
+              </div>
+              <div>
+                <label for="timeout">Timeout · minutes</label
+                ><input
+                  id="timeout"
+                  type="number"
+                  min="1"
+                  max="1440"
+                  value="30"
+                  required
+                />
+              </div>
+            </div>
+          </details>
+          <div class="submit-row">
+            <span>Isolated container · Changes stay on your host</span
+            ><button id="submit" class="primary" type="submit">
+              Start run ↗
+            </button>
+          </div>
+        </form>
+        <div class="getting-started">
+          <span class="eyebrow">FIRST TIME HERE?</span>
+          <p>
+            Choose
+            <button id="smoke-choice" class="text-button">
+              Local sandbox check
+            </button>
+            to verify your host without an AI account.
+          </p>
+        </div>
+      </section>
+      <section id="run-detail" class="workspace" hidden>
+        <div class="detail-heading">
+          <div>
+            <span id="run-provider" class="eyebrow"></span>
+            <h1 id="run-title"></h1>
+          </div>
+          <span id="run-state" class="state"></span>
+        </div>
+        <p id="run-meta" class="muted"></p>
+        <p id="run-error" role="alert" hidden></p>
+        <div class="output-toolbar">
+          <span>OUTPUT <span id="output-live"></span></span>
+          <div>
+            <button id="download">Export workspace</button
+            ><button id="cancel">Stop run</button
+            ><button id="delete">Delete run</button>
+          </div>
+        </div>
+        <pre id="output" tabindex="0" aria-label="Agent output"></pre>
+        <p class="muted output-caption">
+          Latest 500 lines. Workspaces remain on your host until you delete the
+          run.
+        </p>
+      </section>
+      <footer>
+        <span>YOUR MACHINE. YOUR WORKSPACE.</span
+        ><span id="version">CLOUD AGENTS</span>
+      </footer>
+    </main>
+    <dialog id="settings">
+      <form id="connect-form">
+        <div class="dialog-heading">
+          <h2>Connect to your host</h2>
+          <button type="button" id="close-settings" aria-label="Close">
+            ×
+          </button>
+        </div>
+        <p class="muted">
+          Run the host on your spare machine, then connect through SSH or
+          Tailscale.
+        </p>
+        <label for="endpoint">Host address</label
+        ><input
+          id="endpoint"
+          type="url"
+          value="http://127.0.0.1:7420"
+          required
+        /><label for="token">Connection token</label
+        ><input
+          id="token"
+          type="password"
+          autocomplete="off"
+          required
+          placeholder="Paste the output of cloud-agents token"
+        />
+        <p class="muted">
+          The browser keeps your token in memory for this tab. The desktop app
+          can save it in your operating system’s secure storage.
+        </p>
+        <label class="remember"
+          ><input id="remember" type="checkbox" /> Save connection on this
+          device</label
+        ><button class="primary" type="submit">Connect</button
+        ><button id="disconnect" type="button">Forget connection</button>
+        <p id="connect-error" role="alert"></p>
+      </form>
+      <div class="credential-help">
+        <h3>Provider credentials</h3>
+        <p>On the host, sign in to Codex:</p>
+        <code>cloud-agents login-codex</code>
+        <p>
+          Or import an API key / Claude subscription token using the host CLI.
+          Credentials never pass through this client.
+        </p>
+        <code>cloud-agents credential claude-token</code>
+        <p class="muted">
+          Paste the token, then press Ctrl-D. Use
+          <code>claude setup-token</code> to obtain it. See the repository
+          README for Git access and remote setup.
+        </p>
+        <p id="credential-status"></p>
+      </div>
+    </dialog>
+    <script src="app.js"></script>
+  </body>
+</html>
