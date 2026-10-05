@@ -22,8 +22,10 @@ function validateEndpoint(value) {
 }
 function validateRequest({ path, method = "GET" }) {
   if (
-    !["GET", "POST", "DELETE"].includes(method) ||
-    !/^\/(host|jobs(?:\/[a-f0-9-]{36}(?:\/(?:cancel|logs))?)?)$/.test(path)
+    !["GET", "POST", "DELETE", "PUT"].includes(method) ||
+    !/^\/(host|settings|jobs(?:\/[a-f0-9-]{36}(?:\/(?:cancel|logs))?)?)$/.test(
+      path,
+    )
   )
     throw new Error("Unsupported request.");
 }

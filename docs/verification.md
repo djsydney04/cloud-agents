@@ -21,3 +21,10 @@ This file distinguishes tested behavior from setup that still needs your machine
 - Native Intel macOS runtime, Linux desktop secret-store behavior, Apple notarization, VoiceOver, and physical-device accessibility.
 
 The smoke provider is an actual container workload with filesystem/isolation checks, not a simulated AI response. A successful smoke run verifies orchestration, not provider account access.
+
+## v0.2.0 connection and settings verification
+
+- Rust/API and desktop validation/lifecycle tests pass; native SwiftUI build passes.
+- Real SSH fixture verifies forwarding, reconnection after killing the SSH child, refusal of an unknown host key, and socket cleanup on explicit stop. A separate compiled Swift harness verifies native SSH forwarding, connection replacement, and cleanup against the same fixture.
+- Real Docker host tests verify live settings, persistence across restart, queue pause/resume, optimistic-revision conflict handling, and rejection of budgets above observed VM capacity.
+- Per-host SSH key provisioning, an actual Wi-Fi outage/sleep cycle, and unattended operation across your own two machines still need operator verification. No personal SSH keys or provider credentials are used by the tests.

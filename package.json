@@ -1,6 +1,6 @@
 {
   "name": "cloud-agents-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Your hardware. Your agent workspace.",
   "author": "Cloud Agents contributors",
@@ -8,7 +8,7 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "desktop": "electron .",
-    "test:desktop": "node --test tests/desktop.test.cjs",
+    "test:desktop": "node --test tests/*.test.cjs",
     "package:desktop": "electron-builder --publish never",
     "format:check": "prettier --check \"desktop/*.cjs\" \"ui/*.{html,css,js}\" \"tests/*.cjs\""
   },

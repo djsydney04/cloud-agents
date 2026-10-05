@@ -22,6 +22,7 @@
       <nav id="runs" aria-label="Runs">
         <p class="muted empty-list">Your runs will appear here.</p>
       </nav>
+      <button id="host-settings-button" class="settings">Host settings</button>
       <button id="settings-button" class="settings">
         ⚙ Connection & credentials
       </button>
@@ -168,13 +169,67 @@
           Run the host on your spare machine, then connect through SSH or
           Tailscale.
         </p>
-        <label for="endpoint">Host address</label
-        ><input
-          id="endpoint"
-          type="url"
-          value="http://127.0.0.1:7420"
-          required
-        /><label for="token">Connection token</label
+        <div id="transport-fields">
+          <label for="transport">Connection</label
+          ><select id="transport">
+            <option value="ssh">SSH tunnel</option>
+            <option value="direct">Direct / Tailscale</option>
+          </select>
+          <div id="ssh-fields">
+            <div class="form-row">
+              <div>
+                <label for="ssh-host">Machine</label
+                ><input id="ssh-host" placeholder="my-mini.local" />
+              </div>
+              <div>
+                <label for="ssh-user">Username</label
+                ><input id="ssh-user" placeholder="your-user" />
+              </div>
+            </div>
+            <details>
+              <summary>SSH options</summary>
+              <label for="ssh-key">Private key path (optional)</label
+              ><input id="ssh-key" placeholder="/Users/you/.ssh/id_ed25519" />
+              <div class="form-row">
+                <div>
+                  <label for="ssh-port">SSH port</label
+                  ><input
+                    id="ssh-port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value="22"
+                  />
+                </div>
+                <div>
+                  <label for="remote-port">Host service port</label
+                  ><input
+                    id="remote-port"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value="7420"
+                  />
+                </div>
+              </div>
+            </details>
+            <p class="muted">
+              Uses your existing SSH keys or SSH agent. First connect once in
+              Terminal to verify the machine’s fingerprint. We never accept
+              unknown host keys automatically.
+            </p>
+          </div>
+        </div>
+        <div id="direct-fields">
+          <label for="endpoint">Host address</label
+          ><input
+            id="endpoint"
+            type="url"
+            value="http://127.0.0.1:7420"
+            required
+          />
+        </div>
+        <label for="token">Connection token</label
         ><input
           id="token"
           type="password"
@@ -187,12 +242,13 @@
           can save it in your operating system’s secure storage.
         </p>
         <label class="remember"
-          ><input id="remember" type="checkbox" /> Save connection on this
-          device</label
+          ><input id="remember" type="checkbox" checked /> Save connection on
+          this device</label
         ><button class="primary" type="submit">Connect</button
         ><button id="disconnect" type="button">Forget connection</button>
         <p id="connect-error" role="alert"></p>
       </form>
+      <p id="tunnel-status" class="muted" role="status"></p>
       <div class="credential-help">
         <h3>Provider credentials</h3>
         <p>On the host, sign in to Codex:</p>
@@ -209,6 +265,71 @@
         </p>
         <p id="credential-status"></p>
       </div>
+    </dialog>
+    <dialog id="host-settings">
+      <form id="host-settings-form">
+        <div class="dialog-heading">
+          <h2>Host settings</h2>
+          <button
+            type="button"
+            id="close-host-settings"
+            aria-label="Close host settings"
+          >
+            ×
+          </button>
+        </div>
+        <p id="available-capacity" class="muted"></p>
+        <div class="form-row">
+          <div>
+            <label for="budget-cpus">CPU budget</label
+            ><input id="budget-cpus" type="number" min="1" required />
+          </div>
+          <div>
+            <label for="budget-memory">Memory budget · GiB</label
+            ><input
+              id="budget-memory"
+              type="number"
+              min="0.25"
+              step="0.25"
+              required
+            />
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label for="budget-jobs">Concurrent runs</label
+            ><input
+              id="budget-jobs"
+              type="number"
+              min="1"
+              max="1024"
+              required
+            />
+          </div>
+          <div>
+            <label for="budget-disk">Keep free · GiB</label
+            ><input
+              id="budget-disk"
+              type="number"
+              min="0"
+              max="1000000"
+              required
+            />
+          </div>
+        </div>
+        <label class="remember"
+          ><input id="budget-paused" type="checkbox" /> Pause new runs</label
+        >
+        <p class="muted">
+          Saved on the host and applied without restarting. Running containers
+          keep their existing limits. To offer more than Docker’s capacity,
+          resize the VM or Docker Desktop allocation first.
+        </p>
+        <button class="primary" id="save-host-settings" type="submit">
+          Save settings</button
+        ><button id="reload-host-settings" type="button">Reload</button>
+        <p id="settings-result" role="status"></p>
+      </form>
     </dialog>
     <script src="app.js"></script>
   </body>

@@ -5,9 +5,22 @@ let token = "",
   jobs = [],
   selected = null,
   connected = false,
+  configured = false,
+  connectionGeneration = 0,
   polling = false;
 const desktop = window.cloudAgents;
 $("remember").parentElement.hidden = !desktop;
+$("transport-fields").hidden = !desktop;
+function transportFields() {
+  const ssh = desktop && $("transport").value === "ssh";
+  $("ssh-fields").hidden = !ssh;
+  $("direct-fields").hidden = !!ssh;
+  $("endpoint").required = !ssh;
+  $("ssh-host").required = !!ssh;
+  $("ssh-user").required = !!ssh;
+}
+$("transport").onchange = transportFields;
+transportFields();
 $("endpoint").value = desktop ? "http://127.0.0.1:7420" : location.origin;
 $("endpoint").readOnly = !desktop;
 async function api(path, method = "GET", body) {
@@ -33,8 +46,13 @@ function notice(message = "") {
 function connection(ok) {
   connected = ok;
   $("status-dot").classList.toggle("connected", ok);
-  $("connection-status").textContent = ok ? "Host connected" : "Not connected";
+  $("connection-status").textContent = ok
+    ? "Host connected"
+    : configured
+      ? "Reconnecting…"
+      : "Not connected";
   $("submit").disabled = !ok;
+  $("host-settings-button").disabled = !ok;
 }
 function renderList() {
   $("run-count").textContent = jobs.length;
@@ -104,10 +122,13 @@ async function renderDetail() {
   }
 }
 async function refresh() {
-  if (!connected || polling) return;
+  if (!configured || polling) return;
+  const generation = connectionGeneration;
   polling = true;
   try {
     const [host, runs] = await Promise.all([api("/host"), api("/jobs")]);
+    if (generation !== connectionGeneration) return;
+    connection(true);
     jobs = runs;
     renderList();
     $("host-name").textContent = host.name;
@@ -117,15 +138,22 @@ async function refresh() {
     $("credential-status").textContent =
       `Codex: ${host.credentials.codex ? "ready" : "not connected"} · Claude: ${host.credentials.claude ? "ready" : "not connected"} · GitHub: ${host.credentials.github ? "token configured" : "public repositories"}`;
     notice(
-      !host.health.docker_ready
-        ? "Docker is unavailable on your host. Start Docker to continue."
-        : !host.health.image_ready
-          ? "Build the sandbox image on your host before starting runs."
-          : "",
+      host.paused
+        ? "New runs are paused. Resume them in Host settings."
+        : !host.health.docker_ready
+          ? "Docker is unavailable on your host. Start Docker to continue."
+          : !host.health.image_ready
+            ? "Build the sandbox image on your host before starting runs."
+            : "",
     );
     if (selected) await renderDetail();
   } catch (e) {
-    notice("Connection interrupted: " + e.message);
+    if (generation !== connectionGeneration) return;
+    connection(false);
+    const status = desktop ? await desktop.status().catch(() => null) : null;
+    const message = status?.error || e.message;
+    notice("Reconnecting automatically. " + message);
+    $("tunnel-status").textContent = message;
   } finally {
     polling = false;
   }
@@ -138,12 +166,21 @@ $("connect-form").onsubmit = async (event) => {
     token = $("token").value.trim();
     if (desktop)
       await desktop.connect({
+        mode: $("transport").value,
+        ssh: {
+          host: $("ssh-host").value.trim(),
+          user: $("ssh-user").value.trim(),
+          port: Number($("ssh-port").value),
+          remotePort: Number($("remote-port").value),
+          identityFile: $("ssh-key").value.trim(),
+        },
         endpoint,
         token,
         remember: $("remember").checked,
       });
-    await api("/host");
-    connection(true);
+    configured = true;
+    connectionGeneration++;
+    connection(false);
     $("settings").close();
     $("token").value = "";
     await refresh();
@@ -157,6 +194,8 @@ $("close-settings").onclick = () => $("settings").close();
 $("disconnect").onclick = async () => {
   if (desktop) await desktop.disconnect();
   token = "";
+  configured = false;
+  connectionGeneration++;
   connection(false);
   jobs = [];
   select(null);
@@ -236,7 +275,17 @@ connection(false);
       const saved = await desktop.restore();
       if (saved) {
         $("endpoint").value = saved.endpoint;
-        connection(true);
+        $("transport").value = saved.mode || "direct";
+        if (saved.ssh) {
+          $("ssh-host").value = saved.ssh.host;
+          $("ssh-user").value = saved.ssh.user;
+          $("ssh-port").value = saved.ssh.port;
+          $("remote-port").value = saved.ssh.remotePort;
+          $("ssh-key").value = saved.ssh.identityFile || "";
+        }
+        transportFields();
+        configured = true;
+        connection(false);
         await refresh();
         return;
       }
@@ -247,3 +296,56 @@ connection(false);
   $("settings").showModal();
 })();
 setInterval(refresh, 2500);
+
+let settingsDraft = null;
+async function loadHostSettings() {
+  try {
+    const [settings, host] = await Promise.all([
+      api("/settings"),
+      api("/host"),
+    ]);
+    settingsDraft = settings;
+    $("budget-cpus").value = settings.cpus;
+    $("budget-memory").value = settings.memory_mb / 1024;
+    $("budget-jobs").value = settings.max_jobs;
+    $("budget-disk").value = settings.min_free_gb;
+    $("budget-paused").checked = settings.paused;
+    $("available-capacity").textContent =
+      `Docker offers ${host.health.docker_cpus ?? "unknown"} CPUs and ${host.health.docker_memory_mb ? (host.health.docker_memory_mb / 1024).toFixed(1) : "unknown"} GiB. In use: ${host.used_cpus} CPUs / ${(host.used_memory_mb / 1024).toFixed(1)} GiB.`;
+    $("budget-cpus").max = host.health.docker_cpus || 1024;
+    $("budget-memory").max = host.health.docker_memory_mb
+      ? Math.floor(host.health.docker_memory_mb / 256) / 4
+      : 16384;
+    $("settings-result").textContent = "";
+  } catch (e) {
+    $("settings-result").textContent = e.message;
+  }
+}
+$("host-settings-button").onclick = () => {
+  $("host-settings").showModal();
+  loadHostSettings();
+};
+$("close-host-settings").onclick = () => $("host-settings").close();
+$("reload-host-settings").onclick = loadHostSettings;
+$("host-settings-form").onsubmit = async (event) => {
+  event.preventDefault();
+  if (!settingsDraft) return;
+  $("save-host-settings").disabled = true;
+  try {
+    settingsDraft = await api("/settings", "PUT", {
+      revision: settingsDraft.revision,
+      cpus: Number($("budget-cpus").value),
+      memory_mb: Math.round(Number($("budget-memory").value) * 1024),
+      max_jobs: Number($("budget-jobs").value),
+      min_free_gb: Number($("budget-disk").value),
+      paused: $("budget-paused").checked,
+    });
+    $("settings-result").textContent =
+      "Saved on host. New runs use this budget.";
+    await refresh();
+  } catch (e) {
+    $("settings-result").textContent = e.message;
+  } finally {
+    $("save-host-settings").disabled = false;
+  }
+};

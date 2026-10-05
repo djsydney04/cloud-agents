@@ -20,6 +20,7 @@ pub struct Engine {
     pub store: Arc<Mutex<Store>>,
     pub token: Arc<String>,
     pub health: Arc<Mutex<Health>>,
+    pub settings: Arc<Mutex<crate::settings::Settings>>,
 }
 #[derive(Clone, Default, Serialize)]
 pub struct Health {
@@ -27,6 +28,8 @@ pub struct Health {
     pub image_ready: bool,
     pub free_bytes: u64,
     pub last_error: Option<String>,
+    pub docker_cpus: Option<u32>,
+    pub docker_memory_mb: Option<u32>,
 }
 
 pub async fn docker(args: &[String]) -> Result<String> {
@@ -70,7 +73,15 @@ impl Engine {
         if token.trim().len() < 32 {
             bail!("Host token must contain at least 32 characters");
         }
+        let settings_path = config.data_dir.join("settings.json");
+        let settings = if settings_path.exists() {
+            serde_json::from_slice(&fs::read(settings_path)?)?
+        } else {
+            crate::settings::Settings::from_config(&config)
+        };
+        settings.validate()?;
         Ok(Self {
+            settings: Arc::new(Mutex::new(settings)),
             store: Arc::new(Mutex::new(Store::open(&config.data_dir.join("state.db"))?)),
             config,
             token: Arc::new(token.trim().into()),
@@ -212,7 +223,11 @@ impl Engine {
         Ok(())
     }
     pub async fn check_health(&self) -> Result<()> {
-        let ready = docker(&strings(&["info", "--format", "{{.ServerVersion}}"])).await;
+        let ready = docker(&strings(&["info", "--format", "{{json .}}"])).await;
+        let info = ready
+            .as_ref()
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
         let image = if ready.is_ok() {
             docker(&strings(&[
                 "image",
@@ -228,6 +243,14 @@ impl Engine {
         };
         let free = fs2::available_space(&self.config.data_dir)?;
         *self.health.lock().unwrap() = Health {
+            docker_cpus: info
+                .as_ref()
+                .and_then(|v| v["NCPU"].as_u64())
+                .map(|n| n as u32),
+            docker_memory_mb: info
+                .as_ref()
+                .and_then(|v| v["MemTotal"].as_u64())
+                .map(|n| (n / 1024 / 1024) as u32),
             docker_ready: ready.is_ok(),
             image_ready: image,
             free_bytes: free,
@@ -322,11 +345,16 @@ impl Engine {
                 }
             }
         }
-        if !image || free < self.config.min_free_gb.saturating_mul(1024 * 1024 * 1024) {
+        if !image {
             return Ok(());
         }
         loop {
             let next = {
+                // Settings and admission use one lock order: policy, then job store.
+                let policy = self.settings.lock().unwrap();
+                if policy.paused || free < policy.min_free_gb.saturating_mul(1024 * 1024 * 1024) {
+                    break;
+                }
                 let s = self.store.lock().unwrap();
                 let jobs = s.list()?;
                 let active: Vec<_> = jobs.iter().filter(|j| j.active()).collect();
@@ -336,9 +364,9 @@ impl Engine {
                 let next = jobs.iter().rev().find(|j| j.status == "queued");
                 match next {
                     Some(j)
-                        if active.len() < self.config.max_jobs
-                            && used_cpu + j.request.cpus <= self.config.cpus
-                            && used_mem + j.request.memory_mb <= self.config.memory_mb =>
+                        if active.len() < policy.max_jobs
+                            && used_cpu + j.request.cpus <= policy.cpus
+                            && used_mem + j.request.memory_mb <= policy.memory_mb =>
                     {
                         let mut j = j.clone();
                         j.status = "starting".into();

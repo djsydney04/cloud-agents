@@ -13,9 +13,13 @@ struct Run: Codable, Identifiable, Hashable {
     var active: Bool { ["queued", "starting", "running", "cancelling"].contains(status) }
 }
 struct Host: Decodable {
-    struct Health: Decodable { let docker_ready: Bool; let image_ready: Bool }
+    struct Health: Decodable { let docker_ready: Bool; let image_ready: Bool; let docker_cpus: Int?; let docker_memory_mb: Int? }
     let cpus: Int; let memory_mb: Int; let used_cpus: Int; let used_memory_mb: Int
     let health: Health
+    let paused: Bool?
+}
+struct HostSettings: Codable {
+    var cpus: Int; var memory_mb: Int; var max_jobs: Int; var min_free_gb: Int; var paused: Bool; var revision: UInt64
 }
 struct Log: Decodable { let output: String }
 struct Failure: Decodable { let error: String }
@@ -47,6 +51,13 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     var endpoint = "http://127.0.0.1:7420"
     var token = ""
     var connected = false
+    var configured = false
+    var connecting = false
+    var mode = "ssh"
+    var ssh = SSHConnection()
+    let tunnel = SSHTunnel()
+    private var generation = 0
+    private var didRestore = false
     var runs: [Run] = []
     var selected: String?
     var output = ""
@@ -65,7 +76,7 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         return url
     }
     func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> Data {
-        var r = URLRequest(url: try validatedURL(path)); r.httpMethod = method; r.httpBody = body; r.timeoutInterval = 60
+        var r = URLRequest(url: try validatedURL(path)); r.httpMethod = method; r.httpBody = body; r.timeoutInterval = 10
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization"); r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await session.data(for: r)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -74,24 +85,39 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         return data
     }
     func connect(save: Bool) async {
+        guard !connecting else { return }; connecting = true; defer { connecting = false }
         do {
             token = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            host = try JSONDecoder().decode(Host.self, from: await request("/host"))
-            if save { let data = try JSONSerialization.data(withJSONObject: ["endpoint": endpoint, "token": token]); try Keychain.save(String(decoding: data, as: UTF8.self)) } else { Keychain.clear() }
-            connected = true; message = ""; await refresh()
-        } catch { connected = false; message = error.localizedDescription }
+            guard token.count >= 32 else { throw ClientError.message("Paste the host connection token.") }
+            if mode == "ssh" { endpoint = try tunnel.start(ssh) } else { _ = try validatedURL("/host"); tunnel.stop() }
+            if save {
+                let sshData = try JSONEncoder().encode(ssh)
+                let data = try JSONSerialization.data(withJSONObject: ["endpoint": endpoint, "token": token, "mode": mode, "ssh": String(decoding: sshData, as: UTF8.self)])
+                try Keychain.save(String(decoding: data, as: UTF8.self))
+            } else { Keychain.clear() }
+            generation += 1; configured = true; connected = false; message = "Connecting…"; await refresh()
+        } catch { configured = false; connected = false; tunnel.stop(); message = error.localizedDescription }
     }
+    func forget() { generation += 1; tunnel.stop(); Keychain.clear(); token = ""; configured = false; connected = false; runs = []; selected = nil }
     func restore() async {
-        if let s = Keychain.load(), let data = s.data(using: .utf8), let c = try? JSONDecoder().decode([String: String].self, from: data), let e = c["endpoint"], let t = c["token"] { endpoint = e; token = t; await connect(save: true) }
+        guard !didRestore else { return }; didRestore = true;
+        if let s = Keychain.load(), let data = s.data(using: .utf8), let c = try? JSONDecoder().decode([String: String].self, from: data), let e = c["endpoint"], let t = c["token"] {
+            endpoint = e; token = t; mode = c["mode"] ?? "direct"
+            if let value = c["ssh"], let sshData = value.data(using: .utf8), let saved = try? JSONDecoder().decode(SSHConnection.self, from: sshData) { ssh = saved }
+            await connect(save: true)
+        }
     }
+    func loadSettings() async throws -> HostSettings { try JSONDecoder().decode(HostSettings.self, from: await request("/settings")) }
+    func saveSettings(_ settings: HostSettings) async throws -> HostSettings { try JSONDecoder().decode(HostSettings.self, from: await request("/settings", method: "PUT", body: JSONEncoder().encode(settings))) }
     func refresh() async {
-        guard connected, !refreshing else { return }; refreshing = true; defer { refreshing = false }
+        guard configured, !refreshing else { return }; let current = generation; refreshing = true; defer { refreshing = false }
         do {
-            runs = try JSONDecoder().decode([Run].self, from: await request("/jobs"))
+            let fetched = try JSONDecoder().decode([Run].self, from: await request("/jobs"))
+            guard current == generation else { return }; runs = fetched; connected = true
             host = try JSONDecoder().decode(Host.self, from: await request("/host"))
             if let id = selected { let log = try JSONDecoder().decode(Log.self, from: await request("/jobs/\(id)/logs")); if selected == id { output = log.output } }
-            message = host?.health.docker_ready == false ? "Start Docker on the host." : host?.health.image_ready == false ? "Build the sandbox image on the host." : ""
-        } catch { message = error.localizedDescription }
+            message = host?.paused == true ? "New runs are paused in Host settings." : host?.health.docker_ready == false ? "Start Docker on the host." : host?.health.image_ready == false ? "Build the sandbox image on the host." : ""
+        } catch { if current == generation { connected = false; message = "Reconnecting automatically. " + (tunnel.error.isEmpty ? error.localizedDescription : tunnel.error) } }
     }
     func submit(prompt: String, provider: String, repository: String, cpus: Int, memory: Int, minutes: Int) async {
         do {
@@ -114,8 +140,9 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
 }
 
 struct Workspace: View {
-    @State private var client = Client()
+    @Bindable var client: Client
     @State private var showConnection = false
+    @State private var showHostSettings = false
     @State private var remember = true
     @State private var prompt = ""
     @State private var repository = ""
@@ -137,8 +164,9 @@ struct Workspace: View {
                         VStack(alignment: .leading, spacing: 6) { Text(run.prompt).lineLimit(1); HStack { Text(run.provider); Spacer(); Text(run.status) }.font(.caption2).foregroundStyle(.secondary) }.padding(.vertical, 5).tag(run.id)
                     }
                 }.listStyle(.sidebar)
+                Button("Host settings") { showHostSettings = true }.buttonStyle(.plain).disabled(!client.connected)
                 Button("Connection & credentials") { showConnection = true }.buttonStyle(.plain)
-                Label(client.connected ? "Host connected" : "Not connected", systemImage: "circle.fill").font(.caption).foregroundStyle(client.connected ? accent : .secondary)
+                Label(client.connected ? "Host connected" : client.configured ? "Reconnecting…" : "Not connected", systemImage: "circle.fill").font(.caption).foregroundStyle(client.connected ? accent : .secondary)
             }.padding(20).navigationSplitViewColumnWidth(min: 230, ideal: 255)
         } detail: {
             VStack(alignment: .leading, spacing: 22) {
@@ -172,19 +200,38 @@ struct Workspace: View {
         .sheet(isPresented: $showConnection) {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Connect to your host").font(.title2)
-                TextField("Host address", text: $client.endpoint).textFieldStyle(.roundedBorder)
+                Picker("Connection", selection: $client.mode) { Text("SSH tunnel").tag("ssh"); Text("Direct / Tailscale").tag("direct") }
+                if client.mode == "ssh" {
+                    TextField("Machine (my-mini.local)", text: $client.ssh.host).textFieldStyle(.roundedBorder)
+                    TextField("SSH username", text: $client.ssh.user).textFieldStyle(.roundedBorder)
+                    DisclosureGroup("SSH options") {
+                        TextField("SSH port", value: $client.ssh.port, format: .number)
+                        TextField("Host service port", value: $client.ssh.remotePort, format: .number)
+                        TextField("Private key path (optional)", text: $client.ssh.identityFile)
+                    }
+                    Text("Uses existing SSH keys or your SSH agent. Connect once in Terminal to verify the machine’s fingerprint. The app keeps the tunnel alive and reconnects automatically.").font(.caption).foregroundStyle(.secondary)
+                } else { TextField("Host address", text: $client.endpoint).textFieldStyle(.roundedBorder) }
                 SecureField("Connection token", text: $client.token).textFieldStyle(.roundedBorder)
                 Toggle("Save in Keychain", isOn: $remember)
                 Text("Use cloud-agents token on your host. Remote connections require HTTPS or an SSH tunnel.").font(.caption).foregroundStyle(.secondary)
                 if !client.message.isEmpty { Text(client.message).foregroundStyle(.orange).font(.caption) }
-                HStack { Button("Connect") { Task { await client.connect(save: remember); if client.connected { showConnection = false } } }.buttonStyle(.borderedProminent); Button("Forget") { Keychain.clear(); client.token = ""; client.connected = false; client.runs = []; client.selected = nil }; Spacer(); Button("Close") { showConnection = false } }
+                HStack { Button("Connect") { Task { await client.connect(save: remember); if client.configured { showConnection = false } } }.buttonStyle(.borderedProminent).disabled(client.connecting); Button("Forget") { client.forget() }; Spacer(); Button("Close") { showConnection = false } }
                 Divider(); Text("Provider credentials").font(.headline)
                 Text("On the host, run cloud-agents login-codex, or cloud-agents credential claude-token and paste a token from claude setup-token. See the README for API keys and GitHub access.").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }.padding(30).frame(width: 470)
         }
+        .sheet(isPresented: $showHostSettings) { HostSettingsView(client: client) }
         .confirmationDialog("Permanently delete this run and its workspace?", isPresented: $deleting) { Button("Delete", role: .destructive) { if let run = client.current { Task { await client.delete(run) } } } }
         .onChange(of: client.selected) { _, _ in client.output = ""; Task { await client.refresh() } }
-        .task { await client.restore(); showConnection = !client.connected; while !Task.isCancelled { await client.refresh(); try? await Task.sleep(for: .seconds(3)) } }
+        .task { await client.restore(); showConnection = !client.configured; while !Task.isCancelled { await client.refresh(); try? await Task.sleep(for: .seconds(3)) } }
     }
 }
-@main struct CloudAgentsApp: App { var body: some Scene { WindowGroup { Workspace() }.windowStyle(.titleBar) } }
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    var client: Client?
+    func applicationWillTerminate(_ notification: Notification) { client?.tunnel.stop() }
+}
+@main struct CloudAgentsApp: App {
+    @State private var client = Client()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    var body: some Scene { WindowGroup { Workspace(client: client).onAppear { delegate.client = client } }.windowStyle(.titleBar) }
+}

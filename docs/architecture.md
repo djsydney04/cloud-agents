@@ -20,7 +20,7 @@ The host is intentionally a local process, not a privileged Docker-in-Docker con
 
 `queued → starting → running → succeeded / failed`
 
-Cancellation persists `cancelling` for admitted runs, then the scheduler force-removes the container and records `cancelled`. A queued run can transition directly to `cancelled`. Every resource-bearing state reserves capacity. Admission is FIFO, with intentional head-of-line blocking to avoid starving larger runs. Budgets are user-configured, not CPU-load prediction or automatic ballooning.
+Cancellation persists `cancelling` for admitted runs, then the scheduler force-removes the container and records `cancelled`. A queued run can transition directly to `cancelled`. Every resource-bearing state reserves capacity. Admission is FIFO, with intentional head-of-line blocking to avoid starving larger runs. Budgets are user-configured and live-editable, not CPU-load prediction or automatic ballooning. An admission-policy mutex is always acquired before the job-store mutex, so settings changes cannot race admission. Updates validate Docker capacity and existing reservations, write an owner-only settings file atomically, and increment an optimistic revision. CLI limits bootstrap a new host; persisted settings take precedence thereafter.
 
 A deterministic container name includes the run UUID. After a process crash, `starting`/`running` rows are reconciled against Docker. An already running container is adopted, an exited container yields its exit status, and an unstarted or missing container is marked failed rather than silently reexecuted. The database uses SQLite WAL and full synchronization. Version 1 stores a JSON job document per row; schema version is recorded with `user_version=1`. Future migrations must preserve old job decoding and be transactional.
 
@@ -43,6 +43,7 @@ The owner can grant arbitrary coding execution inside these containers. This is 
 ```text
 ~/.local/share/cloud-agents/
   token                  # random 256-bit bearer token, owner-only
+  settings.json          # live budgets, pause state, optimistic revision
   host.lock              # exclusive scheduler lock
   state.db{,-wal,-shm}    # prompts, repository URLs, resource requests, status
   credentials/           # owner-only provider/Git sources
@@ -59,3 +60,9 @@ The service stopping is not a request to kill all work: containers continue, but
 ## Reproducibility
 
 Cargo and npm lockfiles are committed. Provider CLI versions and the multi-architecture Node base digest are pinned. Debian security packages are resolved when building, so byte-identical image builds are not promised. Record the Docker image ID for a test/deployment; host state transitions are deterministic for observed events, but model results and external networks are not.
+
+## Persistent client transport
+
+Desktop clients supervise OpenSSH with loopback-only local forwarding, BatchMode, strict known-host verification, keepalives, and bounded retry backoff. SSH arguments are passed as an array without a shell. One client profile owns one tunnel. Reconfiguration and forgetting stop the old child; generation guards prevent stale retries reviving it. Clients retry observational reads, never task submissions. Saved profiles survive an offline restore and keep trying until the host returns. Browser clients reconnect their existing endpoint but cannot create SSH processes.
+
+Host-token storage remains Keychain (native) / safeStorage with plaintext fallback refused (Electron). SSH private keys stay in the user's SSH setup. Electron keeps a tray/menu-bar process after window close; explicit Quit stops the tunnel. Native application state owns its tunnel across window lifetimes and stops it on application termination.

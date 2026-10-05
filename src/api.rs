@@ -66,6 +66,7 @@ async fn security(req: Request, next: Next) -> Response {
 pub fn router(e: Engine) -> Router {
     let api = Router::new()
         .route("/host", get(host))
+        .route("/settings", get(settings).put(update_settings))
         .route("/jobs", get(list).post(create))
         .route("/jobs/{id}", get(detail).delete(delete))
         .route("/jobs/{id}/cancel", post(cancel))
@@ -101,11 +102,69 @@ pub fn router(e: Engine) -> Router {
         .with_state(e)
 }
 async fn host(State(e): State<Engine>) -> Json<serde_json::Value> {
+    let policy = e.settings.lock().unwrap().clone();
     let jobs = e.store.lock().unwrap().list().unwrap_or_default();
     let health = e.health.lock().unwrap().clone();
     Json(
-        json!({"version":env!("CARGO_PKG_VERSION"),"name":std::env::var("HOSTNAME").unwrap_or_else(|_|"Your host".into()),"cpus":e.config.cpus,"memory_mb":e.config.memory_mb,"max_jobs":e.config.max_jobs,"active_jobs":jobs.iter().filter(|j|j.active()).count(),"used_cpus":jobs.iter().filter(|j|j.active()).map(|j|j.request.cpus).sum::<u32>(),"used_memory_mb":jobs.iter().filter(|j|j.active()).map(|j|j.request.memory_mb).sum::<u32>(),"health":health,"credentials":{"codex":e.has_credential(&crate::model::Provider::Codex),"claude":e.has_credential(&crate::model::Provider::Claude),"github":e.config.data_dir.join("credentials/github-token").exists()}}),
+        json!({"version":env!("CARGO_PKG_VERSION"),"name":std::env::var("HOSTNAME").unwrap_or_else(|_|"Your host".into()),"cpus":policy.cpus,"memory_mb":policy.memory_mb,"max_jobs":policy.max_jobs,"paused":policy.paused,"active_jobs":jobs.iter().filter(|j|j.active()).count(),"used_cpus":jobs.iter().filter(|j|j.active()).map(|j|j.request.cpus).sum::<u32>(),"used_memory_mb":jobs.iter().filter(|j|j.active()).map(|j|j.request.memory_mb).sum::<u32>(),"health":health,"credentials":{"codex":e.has_credential(&crate::model::Provider::Codex),"claude":e.has_credential(&crate::model::Provider::Claude),"github":e.config.data_dir.join("credentials/github-token").exists()}}),
     )
+}
+async fn settings(State(e): State<Engine>) -> Json<crate::settings::Settings> {
+    Json(e.settings.lock().unwrap().clone())
+}
+async fn update_settings(
+    State(e): State<Engine>,
+    Json(mut proposed): Json<crate::settings::Settings>,
+) -> ApiResult<Json<crate::settings::Settings>> {
+    proposed
+        .validate()
+        .map_err(|err| ApiError(StatusCode::BAD_REQUEST, err.to_string()))?;
+    let health = e.health.lock().unwrap().clone();
+    if !health.docker_ready {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Docker is unavailable; reconnect before changing its resource budget".into(),
+        ));
+    }
+    if health.docker_cpus.is_some_and(|n| proposed.cpus > n)
+        || health
+            .docker_memory_mb
+            .is_some_and(|n| proposed.memory_mb > n)
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST,"Budget exceeds Docker capacity. Increase the VM allocation in Docker or your VM provider first.".into()));
+    }
+    let mut current = e.settings.lock().unwrap();
+    if proposed.revision != current.revision {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Settings changed on another client. Reload them and try again.".into(),
+        ));
+    }
+    let store = e.store.lock().unwrap();
+    let jobs = store.list()?;
+    let active: Vec<_> = jobs.iter().filter(|j| j.active()).collect();
+    if active.len() > proposed.max_jobs
+        || active.iter().map(|j| j.request.cpus).sum::<u32>() > proposed.cpus
+        || active.iter().map(|j| j.request.memory_mb).sum::<u32>() > proposed.memory_mb
+    {
+        return Err(ApiError(StatusCode::CONFLICT,"Running work uses more than that budget. Wait for it to finish or stop runs before reducing limits.".into()));
+    }
+    if jobs.iter().any(|j| {
+        j.status == "queued"
+            && (j.request.cpus > proposed.cpus || j.request.memory_mb > proposed.memory_mb)
+    }) {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "A queued run exceeds that budget. Cancel it or keep enough capacity for it.".into(),
+        ));
+    }
+    proposed.revision += 1;
+    crate::config::private_write(
+        &e.config.data_dir.join("settings.json"),
+        &serde_json::to_vec_pretty(&proposed).map_err(anyhow::Error::from)?,
+    )?;
+    *current = proposed.clone();
+    Ok(Json(proposed))
 }
 async fn list(State(e): State<Engine>) -> ApiResult<Json<Vec<crate::model::Job>>> {
     Ok(Json(e.store.lock().unwrap().list()?))
@@ -119,7 +178,8 @@ async fn detail(
     ))
 }
 async fn create(State(e): State<Engine>, Json(r): Json<NewJob>) -> ApiResult<impl IntoResponse> {
-    r.validate(e.config.cpus, e.config.memory_mb)
+    let policy = e.settings.lock().unwrap();
+    r.validate(policy.cpus, policy.memory_mb)
         .map_err(|v| ApiError(StatusCode::BAD_REQUEST, v.to_string()))?;
     if !e.has_credential(&r.provider) {
         return Err(ApiError(

@@ -100,15 +100,33 @@ Use a fine-grained token limited to the repositories you want, with read-only co
 
 Wi-Fi alone does not make a computer reachable through every router. Keep the machine awake, Docker running, and use one of these private transport options. The Rust service deliberately binds only to loopback.
 
-### SSH: no extra networking service
+### Persistent SSH tunnel in the desktop app
 
-Enable SSH/Remote Login on the host. From your client machine:
+In either desktop client, open **Connection & credentials → SSH tunnel**. Enter the machine name/IP, SSH username, and the host connection token. Click **Connect**. The app opens a private local forward automatically; no forwarding command or terminal window needs to stay open.
+
+- **Save connection** remembers the profile and encrypts the host token using the OS credential store. A saved connection reconnects when the app starts, even if the host was offline at startup.
+- SSH keepalives detect dead connections; retries back off from 1 to 30 seconds. The UI shows **Reconnecting** and disables new submissions until the host responds again. Task submissions are never replayed automatically.
+- In Electron, closing the window leaves the app and tunnel running in the menu bar/system tray. Choose **Quit and stop tunnel** to stop it. On macOS, the native app keeps the tunnel while the app remains running; use its Dock icon to reopen the window, or Quit to stop it.
+- The native app and Electron use your installed OpenSSH client and existing SSH keys/agent. Optional key-path, SSH-port, and remote-service-port fields are under **SSH options**. Password prompts are not supported in an unattended tunnel.
+
+One-time SSH setup on your client (enable SSH / Remote Login on the host first):
+
+```sh
+ssh your-user@your-host
+# Verify the displayed fingerprint against your host, then exit.
+ssh -o BatchMode=yes your-user@your-host true
+# This should succeed without a password prompt before using the app.
+```
+
+If it asks for a password, configure an SSH key/agent first. Keep private keys on the client; the app never copies them to the host or stores their contents. It refuses unknown/changed host keys rather than silently trusting a different machine. DNS names, IPv4 addresses, and standard SSH configuration work; raw IPv6 addresses are not supported in this preview's SSH form.
+
+Across separate networks, SSH itself needs a reachable address. Use a Tailscale hostname/IP to reach a machine behind NAT, or select **Direct / Tailscale** with the private HTTPS URL below.
+
+The browser cannot start SSH processes. Use the desktop app or, for a manual browser tunnel:
 
 ```sh
 ssh -N -L 7420:127.0.0.1:7420 your-user@your-host
 ```
-
-Leave that session open. Connect the app/browser to `http://127.0.0.1:7420` and use the **remote host's** token. Across separate networks, SSH itself needs a reachable address; Tailscale avoids manual router port forwarding.
 
 ### Tailscale: across Wi-Fi networks and NAT
 
@@ -128,6 +146,16 @@ caffeinate -i cloud-agents serve
 
 A closed MacBook lid or sleeping machine can still suspend workloads. Keep a spare laptop powered, ventilated, and awake. Model requests need outbound internet access even if clients connect locally.
 
+## Change host / VM resource settings
+
+Open **Host settings** from either desktop app or the browser. Set the total **CPU budget**, **memory budget**, **concurrent runs**, and **free disk reserve**, then choose **Save settings**. **Pause new runs** stops admissions while allowing existing work to finish.
+
+The screen shows what the Docker daemon offers and what your runs currently use. Updates take effect without restarting the host and persist in its private `settings.json`. On subsequent launches, saved settings take precedence over the initial CLI budget flags. To return to CLI defaults, stop the host and move `settings.json` aside before restarting.
+
+A reduction that would undercut running work or strand a queued run is rejected with an explanation. New runs use the updated budget; existing containers keep their original per-run limits. Concurrent editors receive a conflict rather than overwriting each other's changes.
+
+These controls allocate **agent capacity within the VM/host**. They do not resize a cloud provider's VM or change Docker Desktop's VM allocation. To grant more than Docker currently offers, resize that underlying VM first, then raise the budget here. Disk reserve remains an admission threshold, not a per-run disk quota.
+
 ## Desktop clients
 
 **Native SwiftUI / macOS** — Keychain connection storage, native split view, task submission, output polling, cancellation, export, and deletion:
@@ -146,7 +174,7 @@ npm run desktop
 npm run package:desktop
 ```
 
-For SSH use `http://127.0.0.1:7420`. Remote addresses must use HTTPS. “Save connection” is optional; browser tokens live only in tab memory and must be pasted again after reload. Linux desktop persistence requires an available OS secret store; plaintext fallback is refused.
+Choose **SSH tunnel** to let the app manage forwarding, or **Direct / Tailscale** for an existing endpoint. Direct remote addresses must use HTTPS. “Save connection” is optional; browser tokens live only in tab memory and must be pasted again after reload. Linux desktop persistence requires an available OS secret store; plaintext fallback is refused.
 
 ## Start automatically
 
@@ -182,6 +210,11 @@ cargo build --locked
 docker build -t cloud-agents-sandbox:0.1.0 sandbox
 python3 tests/integration.py
 npm ci && npm run test:desktop
+docker build -t cloud-agents-ssh-test tests/ssh
+node tests/tunnel-integration.cjs
+# Optional native tunnel check on macOS:
+# swiftc -parse-as-library native/Sources/CloudAgents/Tunnel.swift tests/NativeTunnelCheck.swift -o /tmp/native-tunnel-check
+# SWIFT_TUNNEL_TEST=/tmp/native-tunnel-check node tests/tunnel-integration.cjs
 swift build --package-path native  # macOS
 ```
 

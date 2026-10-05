@@ -34,5 +34,5 @@ test("renderer IPC accepts only the host API contract", () => {
     path: "/jobs/550e8400-e29b-41d4-a716-446655440000/cancel",
     method: "POST",
   });
-  assert.throws(() => validateRequest({ path: "/host", method: "PUT" }));
+  assert.throws(() => validateRequest({ path: "/host", method: "PATCH" }));
 });

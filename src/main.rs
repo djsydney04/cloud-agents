@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod engine;
 mod model;
+mod settings;
 mod store;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};

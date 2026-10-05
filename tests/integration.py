@@ -48,13 +48,32 @@ def main():
             except urllib.error.HTTPError as e: assert e.code == 400
             try: create(provider='codex'); raise AssertionError('Missing credentials accepted')
             except urllib.error.HTTPError as e: assert e.code == 409
+            settings=call('/settings')
+            settings.update(cpus=1,memory_mb=1024,max_jobs=1,paused=True)
+            settings=call('/settings','PUT',settings)
+            assert settings['revision']==1
+            try: call('/settings','PUT',{**settings,'revision':0}); raise AssertionError('Stale settings accepted')
+            except urllib.error.HTTPError as e: assert e.code==409
+            held=create();time.sleep(3);assert call('/jobs/'+held['id'])['status']=='queued'
+            call('/jobs/'+held['id']+'/cancel','POST')
+            stop();start();assert call('/settings')['paused'] is True
+            settings=call('/settings','PUT',{**settings,'paused':False})
             # Pause a real running container so we can reliably assert queue/cancellation/recovery.
-            first=create(); wait(first,{'running'}); name='cloud-agents-'+first['id']; docker('pause',name)
-            second=create(); time.sleep(1); assert call('/jobs/'+second['id'])['status']=='queued'
+            first=create(memory_mb=512); wait(first,{'running'}); name='cloud-agents-'+first['id']; docker('pause',name)
+            try: call('/settings','PUT',{**settings,'memory_mb':128}); raise AssertionError('Invalid budget accepted')
+            except urllib.error.HTTPError as e: assert e.code==400
+            try: call('/settings','PUT',{**settings,'cpus':1024}); raise AssertionError('Overallocated VM accepted')
+            except urllib.error.HTTPError as e: assert e.code==400
+            try: call('/settings','PUT',{**settings,'memory_mb':256}); raise AssertionError('Running budget reduction accepted')
+            except urllib.error.HTTPError as e: assert e.code==409
+            second=create(memory_mb=768)
+            try: call('/settings','PUT',{**settings,'memory_mb':512}); raise AssertionError('Queued run stranded by reduction')
+            except urllib.error.HTTPError as e: assert e.code==409
+            time.sleep(1); assert call('/jobs/'+second['id'])['status']=='queued'
             call('/jobs/'+second['id']+'/cancel','POST'); assert call('/jobs/'+second['id'])['status']=='cancelled'
             info=json.loads(docker('inspect',name))[0]
             assert info['HostConfig']['ReadonlyRootfs'] and info['HostConfig']['CapDrop']==['ALL']
-            assert info['HostConfig']['Memory']==256*1024*1024 and info['HostConfig']['PidsLimit']==256
+            assert info['HostConfig']['Memory']==512*1024*1024 and info['HostConfig']['PidsLimit']==256
             assert info['Config']['User']==f'{os.geteuid()}:{os.getegid()}'
             assert all('docker.sock' not in m['Source'] for m in info['Mounts'])
             stop(); start(); assert call('/jobs/'+first['id'])['status']=='running'; docker('unpause',name)
@@ -76,7 +95,7 @@ def main():
             start()
             for id in ids: call('/jobs/'+id,'DELETE')
             assert call('/jobs')==[]
-            print('PASS: auth, URL validation, credential requirement, Docker isolation, FIFO budgets, queued/running cancel, restart recovery, timeout, logs, archive, cleanup')
+            print('PASS: persistent live settings, pause/resume, stale write rejection, VM capacity, auth, URL validation, credential requirement, Docker isolation, FIFO budgets, queued/running cancel, restart recovery, timeout, logs, archive, cleanup')
         finally:
             stop()
             for id in ids: subprocess.run(['docker','rm','-f','cloud-agents-'+id],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

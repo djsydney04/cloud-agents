@@ -23,6 +23,11 @@ jobs:
       - run: cargo build --locked
       - run: docker build -t cloud-agents-sandbox:0.1.0 sandbox
       - run: python3 tests/integration.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: docker build -t cloud-agents-ssh-test tests/ssh
+      - run: node tests/tunnel-integration.cjs
   clients:
     runs-on: macos-15
     steps:
