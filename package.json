@@ -9,7 +9,8 @@
   "scripts": {
     "desktop": "electron .",
     "test:desktop": "node --test tests/desktop.test.cjs",
-    "package:desktop": "electron-builder --publish never"
+    "package:desktop": "electron-builder --publish never",
+    "format:check": "prettier --check \"desktop/*.cjs\" \"ui/*.{html,css,js}\" \"tests/*.cjs\""
   },
   "devDependencies": {
     "electron": "44.5.1",
@@ -28,7 +29,8 @@
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "identity": null
     },
     "linux": {
       "target": "AppImage",
