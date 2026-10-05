@@ -129,6 +129,7 @@ async function refresh() {
     const [host, runs] = await Promise.all([api("/host"), api("/jobs")]);
     if (generation !== connectionGeneration) return;
     connection(true);
+    $("tunnel-status").textContent = "";
     jobs = runs;
     renderList();
     $("host-name").textContent = host.name;
@@ -151,7 +152,13 @@ async function refresh() {
     if (generation !== connectionGeneration) return;
     connection(false);
     const status = desktop ? await desktop.status().catch(() => null) : null;
-    const message = status?.error || e.message;
+    const raw = (status?.error || e.message).replace(
+      /^Error invoking remote method '[^']+': (?:Error: )?/,
+      "",
+    );
+    const message = /fetch failed|Failed to fetch/.test(raw)
+      ? "The host is offline or unreachable. Waiting for it to return."
+      : raw;
     notice("Reconnecting automatically. " + message);
     $("tunnel-status").textContent = message;
   } finally {
@@ -198,6 +205,11 @@ $("disconnect").onclick = async () => {
   connectionGeneration++;
   connection(false);
   jobs = [];
+  notice("");
+  $("tunnel-status").textContent = "";
+  $("host-name").textContent = "No host connected";
+  $("capacity").textContent = "";
+  $("credential-status").textContent = "";
   select(null);
   $("token").value = "";
   $("settings").close();

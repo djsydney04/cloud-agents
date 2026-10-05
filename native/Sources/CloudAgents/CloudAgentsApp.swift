@@ -113,7 +113,7 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         guard configured, !refreshing else { return }; let current = generation; refreshing = true; defer { refreshing = false }
         do {
             let fetched = try JSONDecoder().decode([Run].self, from: await request("/jobs"))
-            guard current == generation else { return }; runs = fetched; connected = true
+            guard current == generation else { return }; runs = fetched; connected = true; tunnel.error = ""
             host = try JSONDecoder().decode(Host.self, from: await request("/host"))
             if let id = selected { let log = try JSONDecoder().decode(Log.self, from: await request("/jobs/\(id)/logs")); if selected == id { output = log.output } }
             message = host?.paused == true ? "New runs are paused in Host settings." : host?.health.docker_ready == false ? "Start Docker on the host." : host?.health.image_ready == false ? "Build the sandbox image on the host." : ""
