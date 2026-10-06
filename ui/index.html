@@ -16,15 +16,18 @@
   </head>
   <body>
     <aside class="sidebar">
-      <a class="brand" href="#">cloud agents<span class="brand-mark">⌁</span></a
-      ><button id="new-run" class="primary">＋ New run</button>
+      <a class="brand" href="#"
+        >cloud agents<span class="brand-mark" aria-hidden="true">⌁</span></a
+      ><button id="new-run" class="primary" type="button">＋ New run</button>
       <div class="section-label">WORKSPACE <span id="run-count">0</span></div>
       <nav id="runs" aria-label="Runs">
         <p class="muted empty-list">Your runs will appear here.</p>
       </nav>
-      <button id="host-settings-button" class="settings">Host settings</button>
-      <button id="settings-button" class="settings">
-        ⚙ Connection & credentials
+      <button id="host-settings-button" class="settings" type="button">
+        Host settings
+      </button>
+      <button id="settings-button" class="settings" type="button">
+        ⚙ Connection &amp; credentials
       </button>
       <div class="host-status">
         <span id="status-dot"></span
@@ -70,6 +73,7 @@
                 id="repository"
                 placeholder="https://github.com/you/project"
                 autocomplete="off"
+                type="text"
               />
             </div>
           </div>
@@ -121,7 +125,7 @@
           <span class="eyebrow">FIRST TIME HERE?</span>
           <p>
             Choose
-            <button id="smoke-choice" class="text-button">
+            <button id="smoke-choice" class="text-button" type="button">
               Local sandbox check
             </button>
             to verify your host without an AI account.
@@ -132,7 +136,7 @@
         <div class="detail-heading">
           <div>
             <span id="run-provider" class="eyebrow"></span>
-            <h1 id="run-title"></h1>
+            <h1 id="run-title">Run details</h1>
           </div>
           <span id="run-state" class="state"></span>
         </div>
@@ -141,12 +145,18 @@
         <div class="output-toolbar">
           <span>OUTPUT <span id="output-live"></span></span>
           <div>
-            <button id="download">Export workspace</button
-            ><button id="cancel">Stop run</button
-            ><button id="delete">Delete run</button>
+            <button id="download" type="button">Export workspace</button
+            ><button id="cancel" type="button">Stop run</button
+            ><button id="delete" type="button">Delete run</button>
           </div>
         </div>
-        <pre id="output" tabindex="0" aria-label="Agent output"></pre>
+        <pre
+          id="output"
+          role="log"
+          aria-live="off"
+          tabindex="0"
+          aria-label="Agent output"
+        ></pre>
         <p class="muted output-caption">
           Latest 500 lines. Workspaces remain on your host until you delete the
           run.
@@ -157,12 +167,12 @@
         ><span id="version">CLOUD AGENTS</span>
       </footer>
     </main>
-    <dialog id="settings">
+    <dialog id="settings" aria-labelledby="connection-heading">
       <form id="connect-form">
         <div class="dialog-heading">
-          <h2>Connect to your host</h2>
+          <h2 id="connection-heading">Connect to your host</h2>
           <button type="button" id="close-settings" aria-label="Close">
-            ×
+            <span aria-hidden="true">×</span>
           </button>
         </div>
         <p class="muted">
@@ -179,17 +189,21 @@
             <div class="form-row">
               <div>
                 <label for="ssh-host">Machine</label
-                ><input id="ssh-host" placeholder="my-mini.local" />
+                ><input id="ssh-host" placeholder="my-mini.local" type="text" />
               </div>
               <div>
                 <label for="ssh-user">Username</label
-                ><input id="ssh-user" placeholder="your-user" />
+                ><input id="ssh-user" placeholder="your-user" type="text" />
               </div>
             </div>
             <details>
               <summary>SSH options</summary>
               <label for="ssh-key">Private key path (optional)</label
-              ><input id="ssh-key" placeholder="/Users/you/.ssh/id_ed25519" />
+              ><input
+                id="ssh-key"
+                placeholder="/Users/you/.ssh/id_ed25519"
+                type="text"
+              />
               <div class="form-row">
                 <div>
                   <label for="ssh-port">SSH port</label
@@ -230,7 +244,8 @@
           />
         </div>
         <label for="token">Connection token</label
-        ><input
+        ><!-- html-validate-disable-next autocomplete-password -- This is an API token, not a password-manager login. -->
+        <input
           id="token"
           type="password"
           autocomplete="off"
@@ -266,16 +281,16 @@
         <p id="credential-status"></p>
       </div>
     </dialog>
-    <dialog id="host-settings">
+    <dialog id="host-settings" aria-labelledby="host-settings-heading">
       <form id="host-settings-form">
         <div class="dialog-heading">
-          <h2>Host settings</h2>
+          <h2 id="host-settings-heading">Host settings</h2>
           <button
             type="button"
             id="close-host-settings"
             aria-label="Close host settings"
           >
-            ×
+            <span aria-hidden="true">×</span>
           </button>
         </div>
         <p id="available-capacity" class="muted"></p>

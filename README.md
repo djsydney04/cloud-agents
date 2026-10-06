@@ -223,3 +223,19 @@ The integration test uses temporary state and real containers: authentication re
 Current scope: independent task runs, one connected host at a time, raw provider event output. Interactive approval prompts, conversational resume, fleet-wide scheduling, egress allowlists, hard disk quotas, Windows hosts, and signed/notarized app distribution are not implemented.
 
 MIT licensed.
+
+## Electron UI lint
+
+Use Node 22.13+ or 24+, then `npm ci`:
+
+```sh
+npm run lint:ui             # JavaScript, HTML/accessibility, CSS; no GUI required
+npm run lint:ui:electron    # Rendered audit in the actual Electron app
+npm run check:ui            # Both, plus formatting
+```
+
+The rendered audit covers 18 states at normal and minimum desktop sizes: SSH/direct connection forms, expanded SSH options, composer/run limits, host settings/save feedback, output, and offline/recovered states. It checks WCAG A/AA and axe best-practice rules (including contrast), horizontal overflow, renderer exceptions, dialog focus restoration, reconnect behavior, and isolated Electron preload settings. JSON reports and screenshots are saved to `test-results/electron-ui/` and uploaded by CI. Accessibility checks are automated checks, not a substitute for manual screen-reader and keyboard review; axe's `incomplete` results are retained for review.
+
+The audit starts a temporary local API fixture and private disposable app profile. It uses the real Electron window, preload and IPC, without a Docker daemon, personal credentials, SSH keys, or model calls. On Linux run it in a graphical session or with `xvfb-run -a npm run lint:ui:electron`. No Playwright browser download is needed; it uses Electron's bundled Chromium.
+
+[Personal-hardware CI setup](docs/personal-ci.md) explains runner lifecycle, trusted-code rules, and Mac/Linux release coverage. Workflows never fall back to GitHub-hosted machines.

@@ -10,12 +10,26 @@
     "desktop": "electron .",
     "test:desktop": "node --test tests/*.test.cjs",
     "package:desktop": "electron-builder --publish never",
-    "format:check": "prettier --check \"desktop/*.cjs\" \"ui/*.{html,css,js}\" \"tests/*.cjs\""
+    "format:check": "prettier --check \"desktop/*.cjs\" \"ui/*.{html,css,js}\" \"tests/**/*.cjs\" \"*.config.cjs\"",
+    "lint:ui": "npm run lint:ui:js && npm run lint:ui:html && npm run lint:ui:css",
+    "lint:ui:js": "eslint ui desktop tests --max-warnings 0",
+    "lint:ui:html": "html-validate \"ui/**/*.html\" --max-warnings 0",
+    "lint:ui:css": "stylelint \"ui/**/*.css\" --max-warnings 0",
+    "lint:ui:electron": "node tests/electron-ui.cjs",
+    "check:ui": "npm run lint:ui && npm run format:check && npm run lint:ui:electron"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "axe-core": "4.14.0",
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
-    "prettier": "3.9.9"
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "html-validate": "10.9.0",
+    "playwright": "1.63.0",
+    "prettier": "3.9.9",
+    "stylelint": "17.16.0",
+    "stylelint-config-standard": "40.0.0"
   },
   "build": {
     "appId": "dev.cloudagents.desktop",
@@ -36,5 +50,8 @@
       "target": "AppImage",
       "category": "Development"
     }
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
   }
 }

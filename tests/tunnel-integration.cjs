@@ -19,7 +19,9 @@ async function wait(fn, seconds = 30) {
     try {
       const value = await fn();
       if (value) return value;
-    } catch {}
+    } catch {
+      /* Best effort: fixture startup or cleanup may race process exit. */
+    }
     await sleep(200);
   }
   throw new Error("Timed out waiting for real SSH tunnel");
@@ -97,7 +99,9 @@ async function wait(fn, seconds = 30) {
     if (tunnel) await tunnel.stop();
     try {
       docker("rm", "-f", name);
-    } catch {}
+    } catch {
+      /* Best effort: fixture startup or cleanup may race process exit. */
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 })().catch((e) => {
