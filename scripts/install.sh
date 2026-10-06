@@ -1,7 +1,7 @@
 #!/bin/sh
 # Downloads a release binary and checks its published checksum. Review before running.
 set -eu
-version="${CLOUD_AGENTS_VERSION:-0.3.0}"
+version="${CLOUD_AGENTS_VERSION:-0.3.1}"
 case "$version" in *[!0-9.]*|'') echo 'Expected a numeric release version.' >&2; exit 1;; esac
 case "$(uname -s)-$(uname -m)" in
  Darwin-arm64) target=aarch64-apple-darwin;;

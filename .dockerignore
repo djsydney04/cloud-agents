@@ -13,3 +13,4 @@
 !desktop/**
 !scripts
 !scripts/release.Dockerfile
+!scripts/after-pack.cjs

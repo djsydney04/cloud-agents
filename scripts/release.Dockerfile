@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libarchive-tool
 WORKDIR /project
 COPY package.json package-lock.json ./
 RUN npm ci
+COPY scripts/after-pack.cjs scripts/after-pack.cjs
 COPY desktop desktop
 COPY ui ui
 COPY --from=host-build /cloud-agents build/host/cloud-agents

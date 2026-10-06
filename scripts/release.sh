@@ -12,6 +12,9 @@ for target in aarch64-apple-darwin x86_64-apple-darwin; do
   tar -czf "build/release/cloud-agents-$target.tar.gz" -C "target/$target/release" cloud-agents
 done
 npx electron-builder --mac --arm64 --x64 --publish never --config.directories.output=build/desktop
+for bundle in build/desktop/mac*/"Cloud Agents.app"; do
+  codesign --verify --deep --strict "$bundle"
+done
 cp build/desktop/*.dmg build/release/
 docker buildx build --builder cloud-agents-release --platform linux/amd64,linux/arm64 --target host --output type=local,dest=build/linux-host -f scripts/release.Dockerfile .
 tar -czf build/release/cloud-agents-x86_64-unknown-linux-gnu.tar.gz -C build/linux-host/linux_amd64 cloud-agents

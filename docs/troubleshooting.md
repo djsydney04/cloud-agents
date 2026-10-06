@@ -33,3 +33,7 @@ To back up, stop the service and its active jobs, then copy the complete private
 ## Updating
 
 Stop the host process, install the next tagged host binary, rebuild the matching sandbox image, then restart. Existing containers retain the image with which they were created. Back up state before upgrading. Release archives include SHA256 checksums; checksum verification checks download integrity, not an independent publisher signature.
+
+### Packaging from an iCloud-synced folder
+
+If Apple signing reports “resource fork, Finder information, or similar detritus,” build outside the synced directory: `npm run package:desktop -- --config.directories.output=/private/tmp/cloud-agents-desktop`. File Provider can recreate Finder metadata while signing. The personal CI runner already builds outside iCloud Documents.

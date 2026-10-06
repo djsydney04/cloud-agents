@@ -9,3 +9,5 @@ Remote SSH connections, automatic reconnection, resource settings, and the brows
 The duplicate SwiftUI client and separate Python service installer have been removed. The UI audit is now one Electron accessibility/layout check instead of several overlapping lint stacks, removing 161 development dependencies.
 
 All downloads are built on personal hardware, including Linux binaries and the Linux desktop package built through Docker. Mac preview apps are not Apple-notarized; use Privacy & Security → Open Anyway if macOS blocks the downloaded app.
+
+Mac apps and their bundled host are now ad-hoc signed and checked with Apple’s strict bundle verifier before publishing. They remain non-notarized previews. Default run limits also adapt to small host budgets.

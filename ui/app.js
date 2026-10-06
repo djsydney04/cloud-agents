@@ -143,6 +143,13 @@ async function refresh() {
     if (generation !== connectionGeneration) return;
     connection(true);
     $("tunnel-status").textContent = "";
+    for (const [id, limit] of [
+      ["cpus", host.cpus],
+      ["memory", host.memory_mb],
+    ]) {
+      $(id).max = limit;
+      if (Number($(id).value) > limit) $(id).value = limit;
+    }
     jobs = runs;
     renderList();
     $("host-name").textContent = host.name;

@@ -22,7 +22,7 @@ const axe = require("axe-core");
   let offline = false;
   const settings = {
     cpus: 4,
-    memory_mb: 8192,
+    memory_mb: 1024,
     max_jobs: 2,
     min_free_gb: 5,
     paused: false,
@@ -200,6 +200,11 @@ const axe = require("axe-core");
       () =>
         document.getElementById("connection-status").textContent ===
         "Host connected",
+    );
+    assert.equal(
+      await page.locator("#memory").inputValue(),
+      "1024",
+      "Default run memory fits a small host budget",
     );
     for (const [width, height] of [
       [1240, 840],

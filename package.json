@@ -1,6 +1,6 @@
 {
   "name": "cloud-agents-desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Your hardware. Your agent workspace.",
   "author": "Cloud Agents contributors",
@@ -35,7 +35,11 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
-      "identity": null
+      "identity": "-",
+      "hardenedRuntime": false,
+      "binaries": [
+        "Contents/Resources/host/cloud-agents"
+      ]
     },
     "linux": {
       "target": "AppImage",
@@ -46,7 +50,8 @@
         "from": "build/host",
         "to": "host"
       }
-    ]
+    ],
+    "afterPack": "scripts/after-pack.cjs"
   },
   "engines": {
     "node": ">=22"
