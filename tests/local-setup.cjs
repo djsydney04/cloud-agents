@@ -117,6 +117,29 @@ const run = promisify(execFile);
         headers: { Authorization: `Bearer ${token}` },
       })
     ).json();
+    const browserWindow = app.waitForEvent("window");
+    await app.evaluate(({ BrowserWindow }, url) => {
+      const window = new BrowserWindow({
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      });
+      return window.loadURL(url);
+    }, `http://127.0.0.1:${port}/#token=${token}`);
+    const browser = await browserWindow;
+    await browser.waitForFunction(
+      () =>
+        document.getElementById("connection-status").textContent ===
+        "Host connected",
+    );
+    assert.equal(
+      new URL(browser.url()).hash,
+      "",
+      "Browser startup removes its token fragment from history",
+    );
+    await browser.close();
     assert(
       host.cpus <= host.health.docker_cpus &&
         host.memory_mb <= host.health.docker_memory_mb,

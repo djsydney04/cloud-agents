@@ -41,3 +41,4 @@ The smoke provider is an actual container workload with filesystem/isolation che
 - Mac notarization, subscription/device-code login with a real account, physical two-machine networking, and Linux systemd service runtime remain operator verification boundaries.
 
 - The packaged macOS Electron app passed the same fresh-profile local-setup, account save/remove, real sandbox, and relaunch test using its bundled universal Rust executable.
+- Browser startup from the installer token fragment was exercised against a real host; the UI authenticated and immediately removed the fragment from the URL.
