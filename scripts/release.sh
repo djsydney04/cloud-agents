@@ -21,4 +21,8 @@ tar -czf build/release/cloud-agents-x86_64-unknown-linux-gnu.tar.gz -C build/lin
 tar -czf build/release/cloud-agents-aarch64-unknown-linux-gnu.tar.gz -C build/linux-host/linux_arm64 cloud-agents
 docker buildx build --builder cloud-agents-release --platform linux/amd64 --target desktop --output type=local,dest=build/linux-desktop -f scripts/release.Dockerfile .
 cp build/linux-desktop/*.AppImage build/release/
+# GitHub normalizes spaces in asset names; use those names in the checksum file.
+for file in build/release/*; do
+  case "$file" in *' '*) mv "$file" "$(printf '%s' "$file" | tr ' ' '.')";; esac
+done
 (cd build/release && shasum -a 256 ./*.tar.gz ./*.dmg ./*.AppImage | sed 's|  ./|  |' > SHA256SUMS)

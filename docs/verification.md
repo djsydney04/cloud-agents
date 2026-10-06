@@ -42,3 +42,11 @@ The smoke provider is an actual container workload with filesystem/isolation che
 
 - The packaged macOS Electron app passed the same fresh-profile local-setup, account save/remove, real sandbox, and relaunch test using its bundled universal Rust executable.
 - Browser startup from the installer token fragment was exercised against a real host; the UI authenticated and immediately removed the fragment from the URL.
+
+## v0.3.1 published download verification
+
+- [Full verification](https://github.com/djsydney04/cloud-agents/actions/runs/37398165659) and [all-platform release](https://github.com/djsydney04/cloud-agents/actions/runs/37398271796) passed on `cloud-agents-personal-mac`.
+- The public ARM64 Mac DMG was downloaded, checksum-verified, mounted read-only, and passed `codesign --verify --deep --strict`.
+- That exact downloaded app passed first-run setup, real background service startup, a real Docker workload, account save/remove, browser connection bootstrap, and saved local-profile relaunch.
+- The public shell installer passed checksum verification and installed a binary reporting `cloud-agents 0.3.1` into an isolated directory.
+- Release checksum filenames match GitHub's normalized asset names. No provider inference or personal credentials were used.
