@@ -3,35 +3,43 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      linux:
+        description: Build Linux assets on registered personal Linux runners
+        type: boolean
+        default: false
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: personal-hardware
+  cancel-in-progress: false
 jobs:
   host:
+    if: github.repository == 'djsydney04/cloud-agents' && github.actor == github.repository_owner
+    runs-on: [self-hosted, macOS, ARM64, cloud-agents]
+    timeout-minutes: 30
     strategy:
       matrix:
-        include:
-          - os: macos-15
-            target: aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.os }}
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked && cargo build --release --locked
-      - run: tar -czf cloud-agents-${{ matrix.target }}.tar.gz -C target/release cloud-agents
+        with:
+          persist-credentials: false
+      - run: rustup target add "${{ matrix.target }}"
+      - run: cargo test --locked && cargo build --release --locked --target "${{ matrix.target }}"
+      - run: tar -czf cloud-agents-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release cloud-agents
       - uses: actions/upload-artifact@v4
         with:
           name: host-${{ matrix.target }}
           path: cloud-agents-*.tar.gz
   desktop:
-    runs-on: macos-15
+    if: github.repository == 'djsydney04/cloud-agents' && github.actor == github.repository_owner
+    runs-on: [self-hosted, macOS, ARM64, cloud-agents]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -48,9 +56,13 @@ jobs:
             dist/*.dmg
             dist/*.zip
   linux-desktop:
-    runs-on: ubuntu-24.04
+    if: github.repository == 'djsydney04/cloud-agents' && github.actor == github.repository_owner && (inputs.linux || vars.CLOUD_AGENTS_LINUX_RELEASES == 'true')
+    timeout-minutes: 30
+    runs-on: [self-hosted, Linux, X64, cloud-agents]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -61,16 +73,43 @@ jobs:
         with:
           name: desktop-linux
           path: dist/*.AppImage
-  publish:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [host, desktop, linux-desktop]
-    runs-on: ubuntu-24.04
+  linux-host:
+    if: github.repository == 'djsydney04/cloud-agents' && github.actor == github.repository_owner && (inputs.linux || vars.CLOUD_AGENTS_LINUX_RELEASES == 'true')
+    strategy:
+      matrix:
+        include:
+          - architecture: X64
+            target: x86_64-unknown-linux-gnu
+          - architecture: ARM64
+            target: aarch64-unknown-linux-gnu
+    runs-on: [self-hosted, Linux, "${{ matrix.architecture }}", cloud-agents]
+    timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: cargo test --locked && cargo build --release --locked
+      - run: tar -czf cloud-agents-${{ matrix.target }}.tar.gz -C target/release cloud-agents
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-${{ matrix.target }}
+          path: cloud-agents-*.tar.gz
+  publish:
+    permissions:
+      contents: write
+    if: always() && github.repository == 'djsydney04/cloud-agents' && github.actor == github.repository_owner && startsWith(github.ref, 'refs/tags/v') && needs.host.result == 'success' && needs.desktop.result == 'success' && (needs.linux-desktop.result == 'success' || needs.linux-desktop.result == 'skipped') && (needs.linux-host.result == 'success' || needs.linux-host.result == 'skipped')
+    needs: [host, desktop, linux-desktop, linux-host]
+    runs-on: [self-hosted, macOS, ARM64, cloud-agents]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           path: release
           merge-multiple: true
-      - run: cd release && sha256sum * > SHA256SUMS
+      - run: cd release && shasum -a 256 * > SHA256SUMS
       - run: gh release create "$TAG" release/* --repo "$REPO" --title "Cloud Agents $TAG" --notes 'Self-hosted coding agent workspaces. See README for setup, networking, credentials, and verification limits. Desktop builds are unsigned/not notarized; build from source if your OS blocks them.'
         env:
           GH_TOKEN: ${{ github.token }}

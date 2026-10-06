@@ -2,43 +2,42 @@ name: Verify
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  group: personal-hardware
+  cancel-in-progress: false
 jobs:
-  engine:
-    runs-on: ubuntu-24.04
+  verify:
+    if: github.repository == 'djsydney04/cloud-agents' && github.ref == 'refs/heads/main' && github.actor == github.repository_owner
+    runs-on: [self-hosted, macOS, ARM64, cloud-agents]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electron-ui-report
+          path: test-results/electron-ui/
+          if-no-files-found: ignore
+      - run: npm run test:desktop
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked
       - run: docker build -t cloud-agents-sandbox:0.1.0 sandbox
       - run: python3 tests/integration.py
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - run: docker build -t cloud-agents-ssh-test tests/ssh
       - run: node tests/tunnel-integration.cjs
-  clients:
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run test:desktop
-      - run: node --check ui/app.js && node --check desktop/main.cjs
       - run: swift build --package-path native
       - run: bash scripts/package-native.sh
       - run: npm run package:desktop -- --dir
