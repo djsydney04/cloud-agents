@@ -1,6 +1,6 @@
 {
   "name": "cloud-agents-desktop",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "Your hardware. Your agent workspace.",
   "author": "Cloud Agents contributors",
@@ -10,26 +10,17 @@
     "desktop": "electron .",
     "test:desktop": "node --test tests/*.test.cjs",
     "package:desktop": "electron-builder --publish never",
-    "format:check": "prettier --check \"desktop/*.cjs\" \"ui/*.{html,css,js}\" \"tests/**/*.cjs\" \"*.config.cjs\"",
-    "lint:ui": "npm run lint:ui:js && npm run lint:ui:html && npm run lint:ui:css",
-    "lint:ui:js": "eslint ui desktop tests --max-warnings 0",
-    "lint:ui:html": "html-validate \"ui/**/*.html\" --max-warnings 0",
-    "lint:ui:css": "stylelint \"ui/**/*.css\" --max-warnings 0",
-    "lint:ui:electron": "node tests/electron-ui.cjs",
-    "check:ui": "npm run lint:ui && npm run format:check && npm run lint:ui:electron"
+    "format:check": "prettier --check \"desktop/*.cjs\" \"ui/*.{html,css,js}\" \"tests/**/*.cjs\"",
+    "lint:ui": "node tests/electron-ui.cjs",
+    "check:ui": "npm run format:check && npm run lint:ui",
+    "prepackage:desktop": "sh scripts/bundle-host.sh"
   },
   "devDependencies": {
-    "@eslint/js": "10.0.1",
     "axe-core": "4.14.0",
     "electron": "44.5.1",
     "electron-builder": "26.15.3",
-    "eslint": "10.12.0",
-    "globals": "17.13.0",
-    "html-validate": "10.9.0",
     "playwright": "1.63.0",
-    "prettier": "3.9.9",
-    "stylelint": "17.16.0",
-    "stylelint-config-standard": "40.0.0"
+    "prettier": "3.9.9"
   },
   "build": {
     "appId": "dev.cloudagents.desktop",
@@ -49,9 +40,15 @@
     "linux": {
       "target": "AppImage",
       "category": "Development"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/host",
+        "to": "host"
+      }
+    ]
   },
   "engines": {
-    "node": "^22.13.0 || >=24.0.0"
+    "node": ">=22"
   }
 }

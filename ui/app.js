@@ -7,18 +7,26 @@ let token = "",
   connected = false,
   configured = false,
   connectionGeneration = 0,
-  polling = false;
+  polling = false,
+  credentialSaving = false;
 const desktop = window.cloudAgents;
 $("remember").parentElement.hidden = !desktop;
 $("transport-fields").hidden = !desktop;
 function transportFields() {
-  const ssh = desktop && $("transport").value === "ssh";
+  const mode = desktop ? $("transport").value : "direct";
+  const ssh = mode === "ssh",
+    local = mode === "local";
+  $("local-fields").hidden = !local;
   $("ssh-fields").hidden = !ssh;
-  $("direct-fields").hidden = !!ssh;
-  $("endpoint").required = !ssh;
-  $("ssh-host").required = !!ssh;
-  $("ssh-user").required = !!ssh;
+  $("direct-fields").hidden = local || ssh;
+  $("token-fields").hidden = local;
+  $("token").required = !local;
+  $("endpoint").required = mode === "direct";
+  $("ssh-host").required = ssh;
+  $("ssh-user").required = ssh;
+  $("connect-submit").textContent = local ? "Set up this computer" : "Connect";
 }
+$("get-docker").onclick = () => desktop?.getDocker();
 $("transport").onchange = transportFields;
 transportFields();
 $("endpoint").value = desktop ? "http://127.0.0.1:7420" : location.origin;
@@ -45,6 +53,8 @@ function notice(message = "") {
 }
 function connection(ok) {
   connected = ok;
+  $("disconnect").hidden = !configured;
+  $("accounts").hidden = !ok;
   $("status-dot").classList.toggle("connected", ok);
   $("connection-status").textContent = ok
     ? "Host connected"
@@ -53,6 +63,9 @@ function connection(ok) {
       : "Not connected";
   $("submit").disabled = !ok;
   $("host-settings-button").disabled = !ok;
+  $("save-credential").disabled = !ok || credentialSaving;
+  $("remove-credential").disabled = !ok || credentialSaving;
+  $("account-choice").disabled = !ok;
 }
 function renderList() {
   $("run-count").textContent = jobs.length;
@@ -168,6 +181,9 @@ async function refresh() {
 $("connect-form").onsubmit = async (event) => {
   event.preventDefault();
   $("connect-error").textContent = "";
+  $("connect-submit").disabled = true;
+  $("connect-submit").textContent =
+    $("transport").value === "local" ? "Preparing workspace…" : "Connecting…";
   try {
     endpoint = $("endpoint").value;
     token = $("token").value.trim();
@@ -190,10 +206,14 @@ $("connect-form").onsubmit = async (event) => {
     connection(false);
     $("settings").close();
     $("token").value = "";
+    $("credential-value").value = "";
     await refresh();
   } catch (e) {
     connection(false);
     $("connect-error").textContent = e.message;
+  } finally {
+    $("connect-submit").disabled = false;
+    transportFields();
   }
 };
 $("settings-button").onclick = () => $("settings").showModal();
@@ -282,6 +302,15 @@ $("download").onclick = async () => {
 };
 connection(false);
 (async () => {
+  const initialToken =
+    !desktop && new URLSearchParams(location.hash.slice(1)).get("token");
+  if (initialToken) {
+    history.replaceState(null, "", location.pathname + location.search);
+    token = initialToken;
+    configured = true;
+    await refresh();
+    return;
+  }
   if (desktop) {
     try {
       const saved = await desktop.restore();
@@ -361,3 +390,37 @@ $("host-settings-form").onsubmit = async (event) => {
     $("save-host-settings").disabled = false;
   }
 };
+
+$("account-choice").onclick = () => {
+  $("settings").showModal();
+  $("accounts").open = true;
+  $("credential-kind").focus();
+};
+async function saveCredential(remove = false) {
+  if (credentialSaving) return;
+  credentialSaving = true;
+  $("save-credential").disabled = true;
+  $("remove-credential").disabled = true;
+  try {
+    await api("/credentials", "PUT", {
+      kind: $("credential-kind").value,
+      value: remove ? null : $("credential-value").value,
+    });
+    $("credential-value").value = "";
+    $("credential-result").textContent = remove
+      ? "Removed from host. Existing runs keep their current access."
+      : "Saved on host. You can now start a run.";
+    await refresh();
+  } catch (error) {
+    $("credential-result").textContent = error.message;
+  } finally {
+    credentialSaving = false;
+    $("save-credential").disabled = !connected;
+    $("remove-credential").disabled = !connected;
+  }
+}
+$("credential-form").onsubmit = (event) => {
+  event.preventDefault();
+  saveCredential();
+};
+$("remove-credential").onclick = () => saveCredential(true);

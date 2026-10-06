@@ -7,11 +7,16 @@ const {
   Tray,
   Menu,
   nativeImage,
+  shell,
 } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+// An explicit profile keeps automated checks separate from personal connections.
+if (process.env.CLOUD_AGENTS_PROFILE)
+  app.setPath("userData", path.resolve(process.env.CLOUD_AGENTS_PROFILE));
 const { validateEndpoint, validateRequest } = require("./connection.cjs");
 const { Tunnel, validateSSH } = require("./tunnel.cjs");
+const { hostBinary, startLocalHost } = require("./host.cjs");
 const tunnel = new Tunnel();
 let configurationTask = Promise.resolve();
 function configureSerially(action) {
@@ -70,6 +75,14 @@ app.whenReady().then(() => {
     (_wc, _permission, callback) => callback(false),
   );
   async function configure(c) {
+    const local = c.mode === "local";
+    if (local)
+      c = {
+        ...c,
+        ...(await startLocalHost(
+          hostBinary(process.resourcesPath, app.isPackaged),
+        )),
+      };
     const ssh = c.mode === "ssh" ? validateSSH(c.ssh) : null;
     const direct = ssh ? null : validateEndpoint(c.endpoint);
     if (
@@ -80,6 +93,7 @@ app.whenReady().then(() => {
       throw new Error("Invalid host token");
     if (
       c.remember &&
+      !local &&
       (!safeStorage.isEncryptionAvailable() ||
         safeStorage.getSelectedStorageBackend?.() === "basic_text")
     )
@@ -92,18 +106,22 @@ app.whenReady().then(() => {
     connection = {
       endpoint,
       token: c.token,
-      mode: ssh ? "ssh" : "direct",
+      mode: local ? "local" : ssh ? "ssh" : "direct",
       ssh,
     };
     if (c.remember) {
       await fs.writeFile(
         savedPath(),
-        JSON.stringify({
-          mode: connection.mode,
-          endpoint: direct,
-          ssh,
-          secret: safeStorage.encryptString(c.token).toString("base64"),
-        }),
+        JSON.stringify(
+          local
+            ? { mode: "local" }
+            : {
+                mode: connection.mode,
+                endpoint: direct,
+                ssh,
+                secret: safeStorage.encryptString(c.token).toString("base64"),
+              },
+        ),
         { mode: 0o600 },
       );
     } else await fs.rm(savedPath(), { force: true });
@@ -123,12 +141,20 @@ app.whenReady().then(() => {
       if (err.code === "ENOENT") return null;
       throw err;
     }
+    if (saved.mode === "local")
+      return configureSerially(() =>
+        configure({ mode: "local", remember: true }),
+      );
     const token = safeStorage.decryptString(
       Buffer.from(saved.secret, "base64"),
     );
     return configureSerially(() =>
       configure({ ...saved, token, remember: true }),
     );
+  });
+  ipcMain.handle("get-docker", async (e) => {
+    trusted(e);
+    await shell.openExternal("https://www.docker.com/products/docker-desktop/");
   });
   ipcMain.handle("status", async (e) => {
     trusted(e);

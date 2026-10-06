@@ -23,7 +23,7 @@ function validateEndpoint(value) {
 function validateRequest({ path, method = "GET" }) {
   if (
     !["GET", "POST", "DELETE", "PUT"].includes(method) ||
-    !/^\/(host|settings|jobs(?:\/[a-f0-9-]{36}(?:\/(?:cancel|logs))?)?)$/.test(
+    !/^\/(host|settings|credentials|jobs(?:\/[a-f0-9-]{36}(?:\/(?:cancel|logs))?)?)$/.test(
       path,
     )
   )

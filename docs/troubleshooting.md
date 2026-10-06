@@ -13,7 +13,7 @@
 | Host works until laptop sleeps | Keep Docker running and prevent sleep while on power; closing a laptop can suspend it. |
 | Another host owns state | Stop the other `serve` process or use another data directory and port. Do not delete the lock file to bypass a running host. |
 | Token rejected | Retrieve the token from the server's data directory using `cloud-agents token`, not from the client machine. |
-| macOS blocks downloaded app | Preview builds are not notarized. Build locally with `scripts/package-native.sh` or use the browser. |
+| macOS blocks downloaded app | Preview builds are not notarized. Use macOS Privacy & Security → Open Anyway, build with `npm run package:desktop`, or use the browser. |
 | Linux secure storage unavailable | Connect without saving or configure your desktop's Secret Service/KWallet backend. |
 
 ## Recovery and cleanup

@@ -35,7 +35,7 @@ pub struct Health {
 pub async fn docker(args: &[String]) -> Result<String> {
     let out = timeout(
         Duration::from_secs(45),
-        Command::new("docker")
+        Command::new(crate::config::docker_path())
             .args(args)
             .kill_on_drop(true)
             .output(),

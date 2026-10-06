@@ -1,7 +1,7 @@
 #!/bin/sh
 # Downloads a release binary and checks its published checksum. Review before running.
 set -eu
-version="${CLOUD_AGENTS_VERSION:-0.2.2}"
+version="${CLOUD_AGENTS_VERSION:-0.3.0}"
 case "$version" in *[!0-9.]*|'') echo 'Expected a numeric release version.' >&2; exit 1;; esac
 case "$(uname -s)-$(uname -m)" in
  Darwin-arm64) target=aarch64-apple-darwin;;
@@ -23,5 +23,11 @@ tar -xzf "$scratch/$asset" -C "$scratch" cloud-agents
 install_dir="${CLOUD_AGENTS_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$install_dir"
 install -m 755 "$scratch/cloud-agents" "$install_dir/cloud-agents"
-printf 'Installed %s/cloud-agents. Add this directory to PATH.\n' "$install_dir"
-printf 'Next: build the sandbox image from the matching release checkout; see README.\n'
+printf 'Installed %s/cloud-agents\n' "$install_dir"
+if [ "${CLOUD_AGENTS_INSTALL_ONLY:-0}" != 1 ]; then
+  if [ "${CLOUD_AGENTS_NO_OPEN:-0}" = 1 ]; then
+    "$install_dir/cloud-agents" start --no-open
+  else
+    "$install_dir/cloud-agents" start
+  fi
+fi

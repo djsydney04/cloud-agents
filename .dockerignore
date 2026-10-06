@@ -1,0 +1,15 @@
+*
+!Cargo.toml
+!Cargo.lock
+!package.json
+!package-lock.json
+!src
+!src/**
+!ui
+!ui/**
+!sandbox
+!sandbox/**
+!desktop
+!desktop/**
+!scripts
+!scripts/release.Dockerfile

@@ -77,12 +77,7 @@ async function wait(fn, seconds = 30) {
     await assert.rejects(() =>
       fetch(endpoint, { signal: AbortSignal.timeout(1000) }),
     );
-    if (process.env.SWIFT_TUNNEL_TEST) {
-      execFileSync(process.env.SWIFT_TUNNEL_TEST, [String(port), key, hosts], {
-        stdio: "inherit",
-        timeout: 60000,
-      });
-    }
+
     // An untrusted server must not get an automatic TOFU exception.
     writeFileSync(hosts, "");
     await tunnel.start(config);

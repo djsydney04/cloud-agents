@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-    C[SwiftUI / Electron / Browser] -->|Bearer token over SSH or private HTTPS| H[Rust host · loopback]
+    C[Electron / Browser] -->|Bearer token over SSH or private HTTPS| H[Rust host · loopback]
     H --> D[(SQLite WAL)]
     H --> S[FIFO scheduler]
     S --> E[Local Docker Engine]
@@ -65,4 +65,10 @@ Cargo and npm lockfiles are committed. Provider CLI versions and the multi-archi
 
 Desktop clients supervise OpenSSH with loopback-only local forwarding, BatchMode, strict known-host verification, keepalives, and bounded retry backoff. SSH arguments are passed as an array without a shell. One client profile owns one tunnel. Reconfiguration and forgetting stop the old child; generation guards prevent stale retries reviving it. Clients retry observational reads, never task submissions. Saved profiles survive an offline restore and keep trying until the host returns. Browser clients reconnect their existing endpoint but cannot create SSH processes.
 
-Host-token storage remains Keychain (native) / safeStorage with plaintext fallback refused (Electron). SSH private keys stay in the user's SSH setup. Electron keeps a tray/menu-bar process after window close; explicit Quit stops the tunnel. Native application state owns its tunnel across window lifetimes and stops it on application termination.
+Remote host tokens use Electron safeStorage with plaintext fallback refused. Local mode stores only its mode; the host keeps its own private token. SSH private keys stay in the user's SSH setup. Electron keeps a tray/menu-bar process after window close; explicit Quit stops the tunnel.
+
+## Single installation path
+
+The Electron app bundles the Rust executable. Both it and the shell installer call `cloud-agents start`, which prepares the embedded sandbox recipe, chooses initial limits from Docker capacity, and installs a per-user launchd/systemd service. `cloud-agents setup` prepares without installing a service; `serve` remains available for foreground development. Local desktop connections read the private token through the bundled CLI, and saved local profiles contain no token. Browser startup uses a URL fragment token that the renderer removes immediately; it is never sent as a URL to the server.
+
+The SwiftUI client and Python service installer were removed so connection, settings, and setup behavior each have one owner.

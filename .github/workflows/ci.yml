@@ -20,7 +20,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
       - run: npm ci
       - run: npm run check:ui
       - uses: actions/upload-artifact@v4
@@ -34,12 +33,12 @@ jobs:
       - run: cargo test --locked
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked
+      - run: python3 tests/setup.py
       - run: docker build -t cloud-agents-sandbox:0.1.0 sandbox
       - run: python3 tests/integration.py
+      - run: node tests/local-setup.cjs
       - run: docker build -t cloud-agents-ssh-test tests/ssh
       - run: node tests/tunnel-integration.cjs
-      - run: swift build --package-path native
-      - run: bash scripts/package-native.sh
       - run: npm run package:desktop -- --dir
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

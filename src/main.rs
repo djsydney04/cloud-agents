@@ -1,12 +1,15 @@
 mod api;
 mod config;
+mod credentials;
 mod engine;
 mod model;
 mod settings;
+mod setup;
 mod store;
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use config::Config;
+use credentials::Credential;
 use std::{fs, io::Read};
 
 #[derive(Parser)]
@@ -19,6 +22,15 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Commands {
+    /// Set up this computer, start at login, and open your workspace.
+    Start {
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Prepare Docker and choose resource defaults, without starting a service.
+    Setup,
+    /// Stop automatic host startup; preserve workspaces and running containers.
+    Stop,
     /// Start the host and serve the workspace on localhost:7420.
     Serve,
     /// Check Docker, sandbox image, disk capacity and credential availability.
@@ -37,63 +49,24 @@ enum Commands {
     /// Submit a local smoke run; requires a running host.
     Smoke,
 }
-#[derive(Clone, ValueEnum)]
-enum Credential {
-    CodexJson,
-    OpenaiKey,
-    ClaudeToken,
-    AnthropicKey,
-    GithubToken,
-}
-impl Credential {
-    fn file(&self) -> &'static str {
-        match self {
-            Self::CodexJson => "codex.json",
-            Self::OpenaiKey => "openai-key",
-            Self::ClaudeToken => "claude-token",
-            Self::AnthropicKey => "anthropic-key",
-            Self::GithubToken => "github-token",
-        }
-    }
-}
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
     cli.config.init()?;
     match cli.command {
+        Commands::Start { no_open } => setup::start(&cli.config, !no_open).await?,
+        Commands::Setup => setup::prepare(&cli.config).await?,
+        Commands::Stop => setup::stop(&cli.config).await?,
         Commands::Token => println!("{}", fs::read_to_string(cli.config.data_dir.join("token"))?),
         Commands::Credential { kind, remove } => {
-            let path = cli.config.data_dir.join("credentials").join(kind.file());
-            if remove {
-                if path.exists() {
-                    fs::remove_file(path)?;
-                }
-                println!(
-                    "Credential removed; existing runs retain their snapshot until completion."
-                );
-            } else {
-                let mut bytes = Vec::new();
+            let mut bytes = Vec::new();
+            if !remove {
                 std::io::stdin()
                     .take(1024 * 1024 + 1)
                     .read_to_end(&mut bytes)?;
-                if bytes.len() > 1024 * 1024 || bytes.is_empty() {
-                    bail!("Credential must contain 1–1048576 bytes");
-                }
-                if matches!(kind, Credential::CodexJson) {
-                    let v: serde_json::Value = serde_json::from_slice(&bytes)?;
-                    if !v.is_object() {
-                        bail!("Expected Codex auth JSON object");
-                    }
-                } else {
-                    let text = std::str::from_utf8(&bytes)?.trim();
-                    if text.is_empty() || text.contains(['\n', '\r', '\0']) {
-                        bail!("Expected a single-line credential");
-                    }
-                    bytes = text.as_bytes().to_vec();
-                }
-                config::private_write(&path, &bytes)?;
-                println!("Credential saved privately on this host.");
             }
+            credentials::save(&cli.config, &kind, if remove { None } else { Some(&bytes) })?;
+            println!("Credential updated. Existing runs retain their snapshot until completion.");
         }
         Commands::LoginCodex => {
             // A dedicated directory contains only login state, never the user's own Codex home.
@@ -101,7 +74,7 @@ async fn main() -> Result<()> {
             config::private_dir(&login)?;
             let (uid, gid) = config::identity();
             let user = format!("{uid}:{gid}");
-            let status = tokio::process::Command::new("docker")
+            let status = tokio::process::Command::new(config::docker_path())
                 .args([
                     "run",
                     "--rm",
@@ -151,7 +124,7 @@ async fn main() -> Result<()> {
             );
             result?;
             if !e.health.lock().unwrap().image_ready {
-                bail!("Build the sandbox: docker build -t cloud-agents-sandbox:0.1.0 sandbox");
+                bail!("Prepare the workspace: cloud-agents setup");
             }
         }
         Commands::Smoke => {

@@ -15,7 +15,7 @@ pub struct Config {
         default_value = "~/.local/share/cloud-agents"
     )]
     pub data_dir: PathBuf,
-    #[arg(long, default_value = "127.0.0.1:7420")]
+    #[arg(long, env = "CLOUD_AGENTS_BIND", default_value = "127.0.0.1:7420")]
     pub bind: std::net::SocketAddr,
     #[arg(long, default_value_t = 4)]
     pub cpus: u32,
@@ -93,4 +93,18 @@ impl Config {
 // Match bind-mounted workspace ownership on both Linux and Docker Desktop.
 pub fn identity() -> (u32, u32) {
     unsafe { (libc::geteuid(), libc::getegid()) }
+}
+
+/// GUI apps and login services do not inherit an interactive shell's PATH.
+pub fn executable_path() -> String {
+    format!(
+        "{}:/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin",
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into())
+    )
+}
+pub fn docker_path() -> PathBuf {
+    std::env::split_paths(&executable_path())
+        .map(|p| p.join("docker"))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("docker"))
 }

@@ -41,3 +41,7 @@ Errors normally return `{ "error": "human-readable reason" }`: 400 validation, 4
 ```
 
 Read the current revision before updating. A successful PUT increments it and persists the policy. A stale revision, unavailable Docker daemon, active reservation exceeding the proposed budget, or queued run that would no longer fit returns 409. Limits above observed Docker capacity return 400. Changing settings requires the same owner token as run creation. `/api/host` also returns `paused` and `health.docker_cpus` / `health.docker_memory_mb`.
+
+## Account configuration
+
+`PUT /api/credentials` accepts `{"kind":"openai-key","value":"..."}` over the authenticated private connection. Supported kinds are `openai-key`, `anthropic-key`, `claude-token`, `github-token`, and `codex-json`. A null value removes that credential. Returns 204; validation errors return 400. The normal 64 KiB API body limit applies. There is no credential-read endpoint. CLI and API share validation and owner-only atomic storage; running jobs retain their existing snapshot until completion.

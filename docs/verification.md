@@ -2,7 +2,7 @@
 
 This file distinguishes tested behavior from setup that still needs your machine/account.
 
-## Local evidence — 2026-10-05
+## Historical v0.1 evidence — 2026-10-05
 
 - Rust: unit/API tests and warning-free Clippy; locked dependency build.
 - Real Docker Desktop ARM64 image build, Codex 0.160.1 and Claude Code 2.1.289 command-line compatibility checked from the installed CLIs.
@@ -30,3 +30,14 @@ The smoke provider is an actual container workload with filesystem/isolation che
 - Per-host SSH key provisioning, an actual Wi-Fi outage/sleep cycle, and unattended operation across your own two machines still need operator verification. No personal SSH keys or provider credentials are used by the tests.
 
 - Packaged Electron saved-profile recovery passed with the host offline across a client quit/relaunch, then a host restart. Live 2-CPU/4-GiB settings and paused queue persisted; the host settings dialog was exercised in the browser.
+
+## v0.3 simplified setup
+
+- One production client: Electron with a bundled Rust host; the shared browser UI remains available.
+- `tests/setup.py` verifies embedded sandbox provisioning, adaptive defaults, private settings, and repeat setup preserving user settings.
+- `tests/local-setup.cjs` verifies fresh-profile one-click setup against a real per-user service and Docker workload, account-key save/remove, a profile containing only `mode: local`, and reconnection after quitting/relaunching.
+- The Electron UI audit covers 22 states at normal and minimum window sizes, including local onboarding and account setup, with zero automatic accessibility violations or horizontal overflows in the local run.
+- Authenticated write-only account configuration, private file permissions, and rejected unauthenticated writes are covered by Rust API tests. No personal provider credentials or paid inference are used.
+- Mac notarization, subscription/device-code login with a real account, physical two-machine networking, and Linux systemd service runtime remain operator verification boundaries.
+
+- The packaged macOS Electron app passed the same fresh-profile local-setup, account save/remove, real sandbox, and relaunch test using its bundled universal Rust executable.

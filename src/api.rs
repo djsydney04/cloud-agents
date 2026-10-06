@@ -5,7 +5,7 @@ use axum::{
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -63,9 +63,29 @@ async fn security(req: Request, next: Next) -> Response {
     }
     r
 }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialInput {
+    kind: crate::credentials::Credential,
+    value: Option<String>,
+}
+async fn save_credential(
+    State(e): State<Engine>,
+    Json(input): Json<CredentialInput>,
+) -> ApiResult<StatusCode> {
+    crate::credentials::save(
+        &e.config,
+        &input.kind,
+        input.value.as_deref().map(str::as_bytes),
+    )
+    .map_err(|error| ApiError(StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub fn router(e: Engine) -> Router {
     let api = Router::new()
         .route("/host", get(host))
+        .route("/credentials", put(save_credential))
         .route("/settings", get(settings).put(update_settings))
         .route("/jobs", get(list).post(create))
         .route("/jobs/{id}", get(detail).delete(delete))
@@ -340,6 +360,48 @@ mod tests {
         let j: crate::model::Job =
             serde_json::from_slice(&to_bytes(res.into_body(), 10000).await.unwrap()).unwrap();
         assert_eq!(j.status, "queued");
+    }
+    #[tokio::test]
+    async fn credentials_are_write_only_authenticated_and_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_d, e) = setup();
+        let app = router(e.clone());
+        for (auth, body, expected) in [
+            (false, r#"{"kind":"openai-key","value":"fixture-key"}"#, 401),
+            (true, r#"{"kind":"openai-key","value":"bad\nvalue"}"#, 400),
+            (true, r#"{"kind":"openai-key","value":"fixture-key"}"#, 204),
+        ] {
+            let mut request = Request::builder()
+                .uri("/api/credentials")
+                .method("PUT")
+                .header("content-type", "application/json");
+            if auth {
+                request = request.header("authorization", format!("Bearer {}", e.token));
+            }
+            let result = app
+                .clone()
+                .oneshot(request.body(Body::from(body)).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(result.status(), expected);
+        }
+        let path = e.config.data_dir.join("credentials/openai-key");
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let result = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/credentials")
+                    .header("authorization", format!("Bearer {}", e.token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.status(), 405);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "fixture-key");
     }
     #[tokio::test]
     async fn cancellation_is_idempotent() {

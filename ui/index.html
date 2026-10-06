@@ -27,7 +27,7 @@
         Host settings
       </button>
       <button id="settings-button" class="settings" type="button">
-        ⚙ Connection &amp; credentials
+        Connection
       </button>
       <div class="host-status">
         <span id="status-dot"></span
@@ -129,6 +129,10 @@
               Local sandbox check
             </button>
             to verify your host without an AI account.
+            <button id="account-choice" class="text-button" type="button">
+              Connect an account
+            </button>
+            when you’re ready.
           </p>
         </div>
       </section>
@@ -170,21 +174,34 @@
     <dialog id="settings" aria-labelledby="connection-heading">
       <form id="connect-form">
         <div class="dialog-heading">
-          <h2 id="connection-heading">Connect to your host</h2>
+          <h2 id="connection-heading">Where should agents run?</h2>
           <button type="button" id="close-settings" aria-label="Close">
             <span aria-hidden="true">×</span>
           </button>
         </div>
         <p class="muted">
-          Run the host on your spare machine, then connect through SSH or
-          Tailscale.
+          Use spare capacity on this computer, or connect to a machine you own.
         </p>
         <div id="transport-fields">
           <label for="transport">Connection</label
           ><select id="transport">
-            <option value="ssh">SSH tunnel</option>
-            <option value="direct">Direct / Tailscale</option>
+            <option value="local">This computer</option>
+            <option value="ssh">Another computer · SSH</option>
+            <option value="direct">Existing host · HTTPS</option>
           </select>
+          <div id="local-fields">
+            <p>
+              We’ll prepare your workspace and keep the host running in the
+              background. You can adjust its CPU and memory later.
+            </p>
+            <p class="muted">
+              Docker Desktop must be running. First-time setup may take a few
+              minutes.
+            </p>
+            <button id="get-docker" type="button" class="text-button">
+              Get Docker Desktop
+            </button>
+          </div>
           <div id="ssh-fields">
             <div class="form-row">
               <div>
@@ -243,43 +260,70 @@
             required
           />
         </div>
-        <label for="token">Connection token</label
-        ><!-- html-validate-disable-next autocomplete-password -- This is an API token, not a password-manager login. -->
-        <input
-          id="token"
-          type="password"
-          autocomplete="off"
-          required
-          placeholder="Paste the output of cloud-agents token"
-        />
-        <p class="muted">
-          The browser keeps your token in memory for this tab. The desktop app
-          can save it in your operating system’s secure storage.
-        </p>
+        <div id="token-fields">
+          <label for="token">Connection token</label
+          ><!-- html-validate-disable-next autocomplete-password -- This is an API token, not a password-manager login. -->
+          <input
+            id="token"
+            type="password"
+            autocomplete="off"
+            required
+            placeholder="Paste the output of cloud-agents token"
+          />
+          <p class="muted">
+            The browser keeps your token in memory for this tab. The desktop app
+            can save it in your operating system’s secure storage.
+          </p>
+        </div>
         <label class="remember"
-          ><input id="remember" type="checkbox" checked /> Save connection on
-          this device</label
-        ><button class="primary" type="submit">Connect</button
+          ><input id="remember" type="checkbox" checked /> Remember this
+          computer</label
+        ><button class="primary" id="connect-submit" type="submit">
+          Get started</button
         ><button id="disconnect" type="button">Forget connection</button>
         <p id="connect-error" role="alert"></p>
       </form>
       <p id="tunnel-status" class="muted" role="status"></p>
-      <div class="credential-help">
-        <h3>Provider credentials</h3>
-        <p>On the host, sign in to Codex:</p>
-        <code>cloud-agents login-codex</code>
-        <p>
-          Or import an API key / Claude subscription token using the host CLI.
-          Credentials never pass through this client.
-        </p>
-        <code>cloud-agents credential claude-token</code>
-        <p class="muted">
-          Paste the token, then press Ctrl-D. Use
-          <code>claude setup-token</code> to obtain it. See the repository
-          README for Git access and remote setup.
-        </p>
+      <details class="credential-help" id="accounts">
+        <summary>Connect an agent account</summary>
+        <form id="credential-form">
+          <label for="credential-kind">Account</label>
+          <select id="credential-kind">
+            <option value="openai-key">Codex · OpenAI API key</option>
+            <option value="anthropic-key">Claude · Anthropic API key</option>
+            <option value="claude-token">Claude subscription token</option>
+            <option value="github-token">
+              GitHub token · private repositories
+            </option>
+          </select>
+          <label for="credential-value">Key or token</label>
+          <input
+            id="credential-value"
+            type="password"
+            autocomplete="off"
+            required
+          />
+          <p class="muted">
+            Sent through your private connection and saved only on the host.
+            This app does not save a copy.
+          </p>
+          <button id="save-credential" type="submit" class="primary">
+            Save on host
+          </button>
+          <button id="remove-credential" type="button">Remove from host</button>
+          <p id="credential-result" role="status"></p>
+        </form>
         <p id="credential-status"></p>
-      </div>
+        <details>
+          <summary>Use a ChatGPT subscription instead</summary>
+          <p>On the host, run this once and follow the sign-in link:</p>
+          <code>~/.local/share/cloud-agents/bin/cloud-agents login-codex</code>
+          <p class="muted">
+            For Claude subscriptions, use <code>claude setup-token</code> and
+            paste its token above.
+          </p>
+        </details>
+      </details>
     </dialog>
     <dialog id="host-settings" aria-labelledby="host-settings-heading">
       <form id="host-settings-form">

@@ -2,6 +2,12 @@
 // Only the host API is a local fixture; no provider account or Docker is used.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
+const { execFileSync } = require("node:child_process");
+const { readdirSync } = require("node:fs");
+for (const dir of ["desktop", "ui"]) {
+  for (const file of readdirSync(dir).filter((file) => /\.c?js$/.test(file)))
+    execFileSync(process.execPath, ["--check", `${dir}/${file}`]);
+}
 const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
@@ -44,6 +50,11 @@ const axe = require("axe-core");
     if (offline) {
       res.writeHead(503);
       res.end('{"error":"Host temporarily unavailable"}');
+      return;
+    }
+    if (req.url === "/api/credentials" && req.method === "PUT") {
+      res.writeHead(204);
+      res.end();
       return;
     }
     const host = {
@@ -92,8 +103,8 @@ const axe = require("axe-core");
   }, 120000);
   try {
     app = await electron.launch({
-      args: [path.resolve("tests/fixtures/electron-entry.cjs")],
-      env: { ...process.env, CLOUD_AGENTS_UI_PROFILE: profile },
+      args: [path.resolve("desktop/main.cjs")],
+      env: { ...process.env, CLOUD_AGENTS_PROFILE: profile },
       chromiumSandbox: true,
       timeout: 30000,
     });
@@ -169,6 +180,8 @@ const axe = require("axe-core");
         [width, height],
       );
       await page.waitForFunction((w) => innerWidth === w, width);
+      await page.locator("#transport").selectOption("local");
+      await audit(`${width}-local-setup`);
       await page.locator("#transport").selectOption("ssh");
       await audit(`${width}-ssh-connection`);
       await page.locator("#ssh-fields summary").click();
@@ -200,6 +213,9 @@ const axe = require("axe-core");
       await page.waitForFunction((w) => innerWidth === w, width);
       await page.locator("#new-run").click();
       await audit(`${width}-composer`);
+      await page.locator("#account-choice").click();
+      await audit(`${width}-accounts`);
+      await page.keyboard.press("Escape");
       await page.locator("#run-form summary").click();
       await audit(`${width}-run-limits`);
       await page.locator("#run-form summary").click();
