@@ -10,8 +10,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,id=cl
 FROM scratch AS host
 COPY --from=host-build /cloud-agents /cloud-agents
 
-FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94 AS desktop-build
-RUN apt-get update && apt-get install -y --no-install-recommends libarchive-tools zip ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS desktop-build
+RUN apt-get update && apt-get install -y --no-install-recommends libarchive-tools zip ca-certificates && rm -rf /var/lib/apt/lists/* \
+    && dpkg --compare-versions \
+        "$(dpkg-query --show --showformat='${Version}' ca-certificates)" ge '20250419~deb12u2'
 WORKDIR /project
 COPY package.json package-lock.json ./
 RUN npm ci
