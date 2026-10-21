@@ -5,7 +5,7 @@ This file distinguishes tested behavior from setup that still needs your machine
 ## Historical v0.1 evidence — 2026-10-05
 
 - Rust: unit/API tests and warning-free Clippy; locked dependency build.
-- Real Docker Desktop ARM64 image build, Codex 0.160.1 and Claude Code 2.1.289 command-line compatibility checked from the installed CLIs.
+- Real Docker Desktop ARM64 image build, Codex 0.164.0-alpha.9 and Claude Code 2.1.306 command-line compatibility checked from the installed CLIs.
 - Real Docker integration suite: auth and input rejection, missing provider credential rejection, non-root/read-only/capability/resource configuration, FIFO queueing, queued and running cancellation, restart adoption, timeout, logs, workspace archive contents, secret snapshot cleanup, and deletion.
 - Native macOS SwiftUI client compiles with Swift 6; universal Apple Silicon + Intel application builds pass in GitHub Actions. The native app connected without saving credentials, submitted a real sandbox check, and displayed successful output.
 - Electron connection/IPC validation tests pass; npm audit reports zero known vulnerabilities at install time. The packaged Electron app connected to the real test host, submitted a smoke job, and displayed its successful output.
