@@ -196,8 +196,8 @@ Build and push the controller and deployment images to your registry. Replace
 
 ```sh
 docker buildx build --platform linux/amd64 -t YOUR_REGISTRY/cloud-agents:container --push .
-docker build -t cloud-agents-sandbox:0.1.0 sandbox
-docker build -f sandbox/deploy.Dockerfile -t YOUR_REGISTRY/cloud-agents-sandbox:deploy .
+docker build --platform linux/amd64 -t cloud-agents-sandbox:0.1.0 sandbox
+docker build --platform linux/amd64 -f sandbox/deploy.Dockerfile -t YOUR_REGISTRY/cloud-agents-sandbox:deploy .
 docker push YOUR_REGISTRY/cloud-agents-sandbox:deploy
 ```
 
