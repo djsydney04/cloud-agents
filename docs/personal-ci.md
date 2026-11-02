@@ -4,7 +4,7 @@ All workflows use self-hosted runners with the `cloud-agents` label. There is no
 
 ## Trusted execution
 
-This public repository runs Verify only on owner-triggered pushes to `main` or manual runs of `main`. There is no `pull_request` or `pull_request_target` trigger. Release jobs also require the repository owner as actor. GitHub's repository Actions setting must require approval for **all external contributors**; never approve an unreviewed external workflow for this runner. Treat merging code to main as permission to execute it on the machine.
+This public repository runs Verify only on owner-triggered pushes to `main` or owner-triggered manual runs of a selected branch. There is no `pull_request` or `pull_request_target` trigger. Review the selected branch before dispatching it to personal hardware. Release jobs also require the repository owner as actor. GitHub's repository Actions setting must require approval for **all external contributors**; never approve an unreviewed external workflow for this runner. Treat merging code to main as permission to execute it on the machine.
 
 Use a dedicated machine/account for stronger separation from personal files. A runner executes trusted repository code with the privileges of its OS account; containers used by tests do not isolate the runner itself. Checkout does not persist the GitHub job token. Jobs have timeouts and verification/release workflows share a concurrency group.
 

@@ -14,3 +14,11 @@
 !scripts
 !scripts/release.Dockerfile
 !scripts/after-pack.cjs
+!Dockerfile
+!deploy
+!deploy/container-entrypoint.sh
+!deploy/cloudflare
+!deploy/cloudflare/Dockerfile
+!deploy/cloudflare/entrypoint.sh
+!build
+!build/cloudflare-sandbox.tar

@@ -116,6 +116,7 @@ impl Engine {
         fs::create_dir_all(&secrets)?;
         perms(&secrets, 0o700)?;
         let mut keys = vec!["github-token"];
+        keys.extend(crate::credentials::DEPLOYMENT_FILES);
         match j.request.provider {
             Provider::Codex => keys.extend(["codex.json", "openai-key"]),
             Provider::Claude => keys.extend(["claude-token", "anthropic-key"]),
@@ -130,8 +131,8 @@ impl Engine {
         }
         Ok(())
     }
-    pub fn create_args(&self, j: &Job) -> Vec<String> {
-        let root = self.job_dir(&j.id);
+    pub fn create_args(&self, j: &Job) -> Result<Vec<String>> {
+        let root = self.config.docker_mount_path(&self.job_dir(&j.id))?;
         let (uid, gid) = crate::config::identity();
         let user = format!("{uid}:{gid}");
         let home = format!("/home/agent:rw,nosuid,nodev,size=256m,uid={uid},gid={gid},mode=700");
@@ -167,6 +168,9 @@ impl Engine {
             "--tmpfs",
             &home,
         ]);
+        if let Some(network) = &self.config.docker_network {
+            a.extend(["--network".into(), network.clone()]);
+        }
         for (source, target, readonly) in [
             ("workspace", "/workspace", false),
             ("input", "/run/input", true),
@@ -187,11 +191,11 @@ impl Engine {
             j.request.provider.name().into(),
             j.request.repository.clone(),
         ]);
-        a
+        Ok(a)
     }
     async fn launch(&self, j: &Job) -> Result<()> {
         self.prepare(j)?;
-        docker(&self.create_args(j)).await?;
+        docker(&self.create_args(j)?).await?;
         docker(&strings(&["start", &name(j)])).await?;
         let s = self.store.lock().unwrap();
         let mut current = s.get(&j.id)?;
@@ -420,11 +424,99 @@ mod tests {
                 serde_json::from_str(r#"{"provider":"smoke","prompt":"secret prompt"}"#).unwrap(),
             )
             .unwrap();
-        let a = e.create_args(&j).join(" ");
+        let args = e.create_args(&j).unwrap();
+        let a = args.join(" ");
         assert!(a.contains("--cap-drop=ALL"));
         assert!(a.contains("--read-only"));
         assert!(a.contains("--memory-swap"));
         assert!(!a.contains("secret prompt"));
         assert!(!a.contains("docker.sock"));
+        assert!(!args.iter().any(|s| s == "--network"));
+    }
+
+    #[test]
+    fn job_mounts_use_daemon_paths_and_explicit_network() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Opt::parse_from(["test", "--data-dir", tmp.path().to_str().unwrap()]).config;
+        c.docker_data_dir = Some("/daemon data".into());
+        c.docker_network = Some("host".into());
+        c.init().unwrap();
+        let e = Engine::new(c).unwrap();
+        let j = e
+            .store
+            .lock()
+            .unwrap()
+            .insert(
+                serde_json::from_str(r#"{"provider":"smoke","prompt":"verify mounts"}"#).unwrap(),
+            )
+            .unwrap();
+        let args = e.create_args(&j).unwrap();
+        assert!(args.windows(2).any(|pair| pair == ["--network", "host"]));
+        for (source, target, readonly) in [
+            ("workspace", "/workspace", ""),
+            ("input", "/run/input", ",readonly"),
+            ("secrets", "/run/secrets", ",readonly"),
+        ] {
+            assert!(args.contains(&format!(
+                "type=bind,src=/daemon data/jobs/{}/{source},dst={target}{readonly}",
+                j.id
+            )));
+        }
+        assert!(
+            !args
+                .iter()
+                .any(|s| s.contains(tmp.path().to_str().unwrap()))
+        );
+    }
+
+    #[test]
+    fn deployment_credentials_are_snapshotted_for_agents_but_never_smoke() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Opt::parse_from(["test", "--data-dir", tmp.path().to_str().unwrap()]).config;
+        c.init().unwrap();
+        for file in crate::credentials::DEPLOYMENT_FILES.into_iter().chain([
+            "github-token",
+            "codex.json",
+            "openai-key",
+            "claude-token",
+            "anthropic-key",
+        ]) {
+            private_write(
+                &c.data_dir.join("credentials").join(file),
+                b"fixture secret",
+            )
+            .unwrap();
+        }
+        let e = Engine::new(c).unwrap();
+        for provider in ["codex", "claude", "smoke"] {
+            let j = e
+                .store
+                .lock()
+                .unwrap()
+                .insert(
+                    serde_json::from_value(
+                        serde_json::json!({"provider": provider, "prompt": "fixture"}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            e.prepare(&j).unwrap();
+            let secrets = e.job_dir(&j.id).join("secrets");
+            if provider == "smoke" {
+                assert_eq!(fs::read_dir(secrets).unwrap().count(), 0);
+                continue;
+            }
+            for file in crate::credentials::DEPLOYMENT_FILES {
+                let path = secrets.join(file);
+                assert_eq!(fs::read(&path).unwrap(), b"fixture secret");
+                assert_eq!(
+                    fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                    0o400
+                );
+            }
+            assert!(secrets.join("github-token").exists());
+            assert_eq!(secrets.join("openai-key").exists(), provider == "codex");
+            assert_eq!(secrets.join("anthropic-key").exists(), provider == "claude");
+        }
     }
 }

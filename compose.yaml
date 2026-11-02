@@ -1,0 +1,72 @@
+# Linux Docker Engine. Docker Desktop requires its host-networking setting.
+services:
+  host:
+    image: cloud-agents-host:local
+    build: .
+    user: "${CLOUD_AGENTS_UID:-1000}:${CLOUD_AGENTS_GID:-1000}"
+    group_add:
+      - "${DOCKER_GID:?Set DOCKER_GID to the Docker socket group ID}"
+    network_mode: host
+    environment:
+      CLOUD_AGENTS_DOCKER_DATA_DIR: "${CLOUD_AGENTS_DATA_DIR:?Set an absolute CLOUD_AGENTS_DATA_DIR}"
+      CLOUD_AGENTS_IMAGE: "${CLOUD_AGENTS_IMAGE:-cloud-agents-sandbox:0.1.0}"
+      CLOUD_AGENTS_DOCKER_NETWORK: "${CLOUD_AGENTS_DOCKER_NETWORK:-bridge}"
+      CLOUD_AGENTS_CPUS: "${CLOUD_AGENTS_CPUS:-4}"
+      CLOUD_AGENTS_MEMORY_MB: "${CLOUD_AGENTS_MEMORY_MB:-8192}"
+      CLOUD_AGENTS_MAX_JOBS: "${CLOUD_AGENTS_MAX_JOBS:-2}"
+      CLOUD_AGENTS_MIN_FREE_GB: "${CLOUD_AGENTS_MIN_FREE_GB:-5}"
+    volumes:
+      - type: bind
+        source: "${CLOUD_AGENTS_DATA_DIR}"
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${DOCKER_SOCKET:-/var/run/docker.sock}"
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  tailscale:
+    profiles: [tailscale]
+    image: tailscale/tailscale:v1.94.2@sha256:95e528798bebe75f39b10e74e7051cf51188ee615934f232ba7ad06a3390ffa1
+    network_mode: host
+    environment:
+      TS_AUTHKEY: "${TS_AUTHKEY:-}"
+      TS_HOSTNAME: cloud-agents
+      TS_USERSPACE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./deploy/tailscale:/config:ro
+    restart: unless-stopped
+
+  # Optional outgoing VPN proxy, reachable only by jobs on this Docker network.
+  tailscale-proxy:
+    profiles: [vpn]
+    image: tailscale/tailscale:v1.94.2@sha256:95e528798bebe75f39b10e74e7051cf51188ee615934f232ba7ad06a3390ffa1
+    networks: [vpn]
+    environment:
+      TS_AUTHKEY: "${TS_VPN_AUTHKEY:-}"
+      TS_HOSTNAME: cloud-agents-jobs
+      TS_USERSPACE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_TAILSCALED_EXTRA_ARGS: --socks5-server=0.0.0.0:1055 --outbound-http-proxy-listen=0.0.0.0:1056
+    volumes:
+      - tailscale-vpn-state:/var/lib/tailscale
+    restart: unless-stopped
+
+networks:
+  vpn:
+    name: cloud-agents-vpn
+volumes:
+  tailscale-state:
+  tailscale-vpn-state:

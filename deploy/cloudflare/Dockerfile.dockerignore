@@ -1,0 +1,6 @@
+*
+!build/
+!build/cloudflare-sandbox.tar
+!deploy/
+!deploy/cloudflare/
+!deploy/cloudflare/entrypoint.sh

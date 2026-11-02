@@ -35,6 +35,14 @@ On your main computer, choose **Another computer · SSH** in Cloud Agents. [Remo
 
 Resource settings allocate agent capacity within Docker. They do not resize the underlying VM. To stop the host's background service, run `~/.local/bin/cloud-agents stop`; existing workspaces and containers are preserved. On an app-only installation, the host binary is under `~/.local/share/cloud-agents/bin/`.
 
+## Containers and cloud deployments
+
+Run the host with Docker Compose or a dedicated Docker sidecar on GKE Standard.
+The optional deployment sandbox includes Wrangler, gcloud, kubectl, and SSH;
+Tailscale profiles cover private app access and outgoing job connections.
+[Container setup](docs/containers-and-deployments.md) includes credential imports,
+CI checks, and an experimental **disposable** Cloudflare Workers + Containers host.
+
 ## Development
 
 Node 22+, Rust, and Docker are needed only to develop the app:
@@ -49,6 +57,8 @@ npm run desktop
 cargo test --locked
 npm run check:ui
 npm run test:desktop
+python3 tests/container_entrypoint.py
+python3 tests/deployment_sandbox.py
 ```
 
 `check:ui` runs formatting, JavaScript syntax checks, and the actual Electron accessibility/layout audit. Reports and screenshots appear in `test-results/electron-ui/`. The audit uses a disposable profile and local host fixture, with no personal credentials or model calls. Automated accessibility checks supplement manual keyboard and screen-reader review.

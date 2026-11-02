@@ -47,6 +47,10 @@ cloud-agents credential openai-key --remove
 
 Credentials are stored as owner-only files under the private host data directory. Use FileVault/LUKS for encryption at rest. Do not back up this directory to public or shared storage.
 
+For Cloudflare, Google/GKE, kubeconfig, deployment SSH keys, and outgoing VPN
+proxies, see [deployment credential setup](containers-and-deployments.md#give-agents-deployment-credentials).
+These imports grant future agent runs access to the configured deployment targets.
+
 ### GitHub access
 
 Public HTTPS GitHub repositories work immediately. For private repositories, import a narrowly scoped GitHub token:

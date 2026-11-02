@@ -12,6 +12,7 @@ a=sys.argv[1:]
 if a[0]=='info': print(json.dumps({'NCPU':2,'MemTotal':2147483648}))
 elif a[:2]==['image','inspect']: sys.exit(0 if (root/'built').exists() else 1)
 elif a[0]=='build':
+ assert a[3:5]==['--network','host'], a
  context=pathlib.Path(a[-1])
  for name in ['Dockerfile','entrypoint.sh','askpass.sh']:
   assert (context/name).read_bytes()==(pathlib.Path(os.environ['SETUP_SOURCE'])/name).read_bytes()
@@ -22,7 +23,7 @@ else: raise AssertionError(a)
     docker.chmod(0o700)
     state = root / 'host'
     env = dict(os.environ, PATH=str(commands)+os.pathsep+os.environ['PATH'], SETUP_FIXTURE=str(root), SETUP_SOURCE=str(pathlib.Path('sandbox').resolve()))
-    command = ['target/debug/cloud-agents', '--data-dir', str(state), 'setup']
+    command = ['target/debug/cloud-agents', '--data-dir', str(state), '--docker-network', 'host', 'setup']
     subprocess.run(command, env=env, check=True)
     assert (root/'built').exists()
     file = state/'settings.json'; settings = json.loads(file.read_text())
