@@ -35,6 +35,7 @@ jobs:
       - run: cargo build --locked
       - run: python3 tests/setup.py
       - run: python3 tests/container_entrypoint.py
+      - run: python3 tests/compose.py
       - run: python3 tests/deployment_sandbox.py
       - run: docker build -t cloud-agents-sandbox:0.1.0 sandbox
       - run: python3 tests/container.py

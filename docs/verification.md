@@ -9,8 +9,13 @@ This file distinguishes tested behavior from setup that still needs your machine
   fixture pass. The credential fixture checks private files, literal proxy
   handling, and refusal of an unknown SSH host key using generated test keys.
 - Compose configuration validates with both optional Tailscale profiles enabled.
-- Cloudflare: nine gateway tests, TypeScript checking, formatting, and a Worker
-  deployment dry run pass. The dry run skips image builds.
+- Cloudflare: eleven tests, TypeScript checking, formatting, and a Worker
+  deployment dry run pass. The dry run skips image builds. Review regression
+  checks verify HTTP-only container forwarding and alarm-based lease renewal
+  through 25 simulated hours, including object reconstruction and manual stop.
+  The lifecycle fixture substitutes the Cloudflare platform APIs.
+- The Compose budget, HTTPS forwarding, and missing-inactivity-lease regressions
+  were reproduced against the previous code and pass after their fixes.
 - Real Docker host/deployment image builds, containerized-host smoke/restart,
   Linux NSS-wrapper loading, and the existing Docker/Electron integration suite
   require the self-hosted runner. Manual branch verification was dispatched,

@@ -61,10 +61,11 @@ Startup readiness uses only `GET /api/host` and has a 90-second deadline. A prox
 error returns 503 without retrying a submitted write; check the job list before
 resubmitting a job after an interrupted response.
 
-The profile intentionally sets no inactivity shutdown: a background job must not
-lose its container merely because the UI is closed. Running containers incur
-charges. Stop the instance explicitly when finished. Cloudflare can still stop
-it for platform events; no runtime is guaranteed.
+The profile renews a six-hour inactivity lease using an hourly Durable Object
+alarm, including after the object restarts. Closing the UI does not end that
+renewal. Running containers and alarms incur charges, including while idle.
+Stop the instance explicitly when finished; alarms never restart a stopped host.
+Cloudflare can still stop it for platform events; no runtime is guaranteed.
 
 To rotate the token, change the Worker secret and stop the existing container
 before reconnecting. A running host retains its startup token. Updating a named

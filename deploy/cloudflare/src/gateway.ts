@@ -67,15 +67,33 @@ export async function routeRequest(
 
 type ContainerHandle = NonNullable<DurableObjectState["container"]>;
 type Port = Pick<Fetcher, "fetch">;
+type AlarmStorage = Pick<DurableObjectStorage, "getAlarm" | "setAlarm">;
+
+export async function keepHostAlive(
+  container: ContainerHandle,
+  storage: AlarmStorage,
+): Promise<void> {
+  await container.setInactivityTimeout(6 * 60 * 60 * 1000);
+  // A constructor must not replace an alarm that is about to be delivered.
+  if ((await storage.getAlarm()) === null) {
+    await storage.setAlarm(Date.now() + 60 * 60 * 1000);
+  }
+}
 
 export class HostGateway {
   private ready: Promise<boolean> | undefined;
   private container: ContainerHandle;
   private token: string;
+  private storage: AlarmStorage;
 
-  constructor(container: ContainerHandle, token: string) {
+  constructor(
+    container: ContainerHandle,
+    token: string,
+    storage: AlarmStorage,
+  ) {
     this.container = container;
     this.token = token;
+    this.storage = storage;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -94,7 +112,12 @@ export class HostGateway {
           "Host stopped; reconnect to start a new disposable workspace",
         );
       }
-      return await this.container.getTcpPort(7421).fetch(request);
+      const url = new URL(request.url);
+      url.protocol = "http:";
+      url.host = "container";
+      const forwarded = new Request(url, request);
+      forwarded.headers.delete("Host");
+      return await this.container.getTcpPort(7421).fetch(forwarded);
     } catch {
       this.ready = undefined;
       return unavailable();
@@ -110,6 +133,7 @@ export class HostGateway {
         env: { CLOUD_AGENTS_TOKEN: this.token },
       });
     }
+    await keepHostAlive(this.container, this.storage);
     return waitForHost(this.container.getTcpPort(7421), this.token);
   }
 }

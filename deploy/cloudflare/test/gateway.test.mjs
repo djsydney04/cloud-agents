@@ -117,9 +117,19 @@ test("routing errors do not replay a write", async () => {
 function containerFixture(forward) {
   const starts = [];
   const probes = [];
+  let alarm = null;
+  const storage = {
+    async getAlarm() {
+      return alarm;
+    },
+    async setAlarm(value) {
+      alarm = value;
+    },
+  };
   const container = {
     running: false,
     images: { host: "registry.cloudflare.com/test/host@sha256:abc" },
+    async setInactivityTimeout() {},
     start(options) {
       starts.push(options);
       this.running = true;
@@ -128,6 +138,10 @@ function containerFixture(forward) {
       assert.equal(port, 7421);
       return {
         async fetch(input, init) {
+          assert.equal(
+            new URL(typeof input === "string" ? input : input.url).protocol,
+            "http:",
+          );
           if (typeof input === "string") {
             probes.push({ input, init });
             return new Response("{}", { status: 200 });
@@ -137,18 +151,20 @@ function containerFixture(forward) {
       };
     },
   };
-  return { container, starts, probes };
+  return { container, starts, probes, storage };
 }
 
 test("concurrent requests share a cold start, probe reads, and forward writes once", async () => {
   let writes = 0;
-  const { container, starts, probes } = containerFixture(async (req) => {
-    assert.equal(req.method, "POST");
-    assert.equal(await req.text(), "a new job");
-    writes++;
-    return new Response("created", { status: 201 });
-  });
-  const gateway = new HostGateway(container, token);
+  const { container, starts, probes, storage } = containerFixture(
+    async (req) => {
+      assert.equal(req.method, "POST");
+      assert.equal(await req.text(), "a new job");
+      writes++;
+      return new Response("created", { status: 201 });
+    },
+  );
+  const gateway = new HostGateway(container, token, storage);
   const responses = await Promise.all(
     [1, 2].map(() =>
       gateway.fetch(
@@ -172,11 +188,11 @@ test("concurrent requests share a cold start, probe reads, and forward writes on
 
 test("container forwarding failures do not replay a write", async () => {
   let writes = 0;
-  const { container } = containerFixture(async () => {
+  const { container, storage } = containerFixture(async () => {
     writes++;
     throw new Error("Lost connection");
   });
-  const response = await new HostGateway(container, token).fetch(
+  const response = await new HostGateway(container, token, storage).fetch(
     request("/api/jobs", { method: "POST", body: "{}" }),
   );
   assert.equal(response.status, 503);
@@ -184,12 +200,36 @@ test("container forwarding failures do not replay a write", async () => {
 });
 
 test("unauthorized requests cannot cold start the container", async () => {
-  const { container, starts } = containerFixture(async () => new Response());
-  const response = await new HostGateway(container, token).fetch(
+  const { container, starts, storage } = containerFixture(
+    async () => new Response(),
+  );
+  const response = await new HostGateway(container, token, storage).fetch(
     request("/api/jobs", { headers: { Authorization: "" } }),
   );
   assert.equal(response.status, 401);
   assert.equal(starts.length, 0);
+});
+
+test("HTTPS writes reach the HTTP-only container with path, query, auth and body preserved", async () => {
+  let writes = 0;
+  const { container, storage } = containerFixture(async (req) => {
+    writes++;
+    assert.equal(req.url, "http://container/api/jobs?source=desktop");
+    assert.equal(req.method, "POST");
+    assert.equal(req.headers.get("Authorization"), `Bearer ${token}`);
+    assert.equal(req.headers.get("Host"), null);
+    assert.equal(await req.text(), "new job");
+    return new Response("created", { status: 201 });
+  });
+  const response = await new HostGateway(container, token, storage).fetch(
+    request("/api/jobs?source=desktop", {
+      method: "POST",
+      body: "new job",
+      headers: { Host: "agents.example.com" },
+    }),
+  );
+  assert.equal(response.status, 201);
+  assert.equal(writes, 1);
 });
 
 test("readiness has a total deadline and never forwards a user mutation", async () => {
