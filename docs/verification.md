@@ -2,6 +2,23 @@
 
 This file distinguishes tested behavior from setup that still needs your machine/account.
 
+## Container deployment profiles — 2026-11-01
+
+- Local: 18 Rust tests, warning-free Clippy, locked build, desktop unit tests,
+  first-run setup fixture, container entrypoint fixture, and deployment credential
+  fixture pass. The credential fixture checks private files, literal proxy
+  handling, and refusal of an unknown SSH host key using generated test keys.
+- Compose configuration validates with both optional Tailscale profiles enabled.
+- Cloudflare: nine gateway tests, TypeScript checking, formatting, and a Worker
+  deployment dry run pass. The dry run skips image builds.
+- Real Docker host/deployment image builds, containerized-host smoke/restart,
+  Linux NSS-wrapper loading, and the existing Docker/Electron integration suite
+  require the self-hosted runner. Manual branch verification was dispatched,
+  but the runner went offline before taking the job.
+- No live Cloudflare/GKE deployment, paid model inference, or physical tailnet/VPN
+  traversal was performed. Cloudflare disk state remains disposable; durable
+  Cloudflare recovery and multi-host workload migration are not implemented.
+
 ## Historical v0.1 evidence — 2026-10-05
 
 - Rust: unit/API tests and warning-free Clippy; locked dependency build.
