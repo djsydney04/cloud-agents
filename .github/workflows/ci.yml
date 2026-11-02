@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   verify:
-    if: github.repository == 'djsydney04/cloud-agents' && github.ref == 'refs/heads/main' && github.actor == github.repository_owner
+    if: github.repository == 'djsydney04/cloud-agents' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && github.actor == github.repository_owner
     runs-on: [self-hosted, macOS, ARM64, cloud-agents]
     timeout-minutes: 45
     steps:
@@ -34,7 +34,14 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo build --locked
       - run: python3 tests/setup.py
+      - run: python3 tests/container_entrypoint.py
+      - run: python3 tests/deployment_sandbox.py
       - run: docker build -t cloud-agents-sandbox:0.1.0 sandbox
+      - run: python3 tests/container.py
+      - run: docker build -f sandbox/deploy.Dockerfile -t cloud-agents-deploy:0.1.0 .
+      - run: docker run --rm --entrypoint sh cloud-agents-deploy:0.1.0 -ec 'wrangler --version; gcloud version; kubectl version --client; gke-gcloud-auth-plugin --version'
+      - run: npm ci && npm run check && npm test
+        working-directory: deploy/cloudflare
       - run: python3 tests/integration.py
       - run: node tests/local-setup.cjs
       - run: docker build -t cloud-agents-ssh-test tests/ssh

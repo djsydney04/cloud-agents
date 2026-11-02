@@ -14,7 +14,7 @@ flowchart LR
     B --> V[Separate run workspace]
 ```
 
-The host is intentionally a local process, not a privileged Docker-in-Docker control plane. It talks to the installed Docker CLI, preserving Docker contexts (Desktop, Colima, or local Engine). Use a **local Docker daemon**: bind-mount paths are resolved on the daemon's machine, so a remote Docker context is not supported. Each desktop client connects to one host at a time; multiple independent hosts need separate connections.
+The native host talks to the installed Docker CLI, preserving Docker contexts (Desktop, Colima, or local Engine). The [container profiles](containers-and-deployments.md) use a local daemon socket or a dedicated Docker-in-Docker sidecar. The trusted controller has authority over that daemon; agent jobs never receive its socket. Bind-mount paths are resolved on the daemon's machine. `CLOUD_AGENTS_DOCKER_DATA_DIR` translates the controller's state root to the daemon's view of the same storage; it does not support an unrelated remote filesystem. Each desktop client connects to one host at a time; multiple independent hosts need separate connections.
 
 ## State and scheduling
 
@@ -33,7 +33,7 @@ A filesystem advisory lock prevents duplicate `serve` processes sharing state. A
 - Workspace and input mounts live under the private host data directory. Containers use the host owner's UID/GID so Linux export/cleanup works without root.
 - CPU/memory totals are reserved against configured limits. Disk admission checks available space before launching work. Workspaces have no hard disk quota.
 - Log rotation limits retained Docker logs to two 5 MB files per container. API output is the latest 500 lines, with stdout/stderr grouped by Docker output stream.
-- Jobs use Docker's default outbound networking. No port publication, host networking, privileged mode, device mounts, or Docker socket.
+- Jobs use Docker's default outbound networking. An explicit `CLOUD_AGENTS_DOCKER_NETWORK` can select a VPN network or host networking; the Cloudflare profile requires host networking and is for trusted work only. Jobs have no port publication, privileged mode, device mounts, or Docker socket.
 - HTTPS termination and NAT traversal belong to SSH/Tailscale; the application refuses non-loopback binding.
 
 The owner can grant arbitrary coding execution inside these containers. This is not a public hosted service or a security boundary between mutually hostile users. Provider/Git tokens are visible to that run's code. Protect host storage with OS full-disk encryption; use restricted repositories, restricted credentials, and a dedicated VM for untrusted tasks.
@@ -55,7 +55,7 @@ The owner can grant arbitrary coding execution inside these containers. This is 
 
 Completed containers remain for log retrieval. Delete removes the named container, workspace, and record. Timeout/cancellation removes the container immediately, so its Docker logs are unavailable afterward. Workspace export preserves symlinks in the archive rather than following them; inspect exported code before running it on your client.
 
-The service stopping is not a request to kill all work: containers continue, but timeout enforcement pauses until the scheduler returns. A Docker daemon failure also delays cancellation/timeouts. No promise is made that provider requests survive a machine sleep or network interruption.
+The service stopping is not a request to kill all work: containers continue while their Docker daemon remains alive, but timeout enforcement pauses until the scheduler returns. SIGINT and SIGTERM shut the host down gracefully. Stopping a Docker-in-Docker sidecar also stops its jobs; the Cloudflare profile loses its disk state when its outer instance stops. A Docker daemon failure delays cancellation/timeouts. No promise is made that provider requests survive a machine sleep or network interruption.
 
 ## Reproducibility
 

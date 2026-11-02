@@ -1,0 +1,129 @@
+# GKE Standard / trusted cluster only: the Docker sidecar is privileged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloud-agents
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cloud-agents-state
+  namespace: cloud-agents
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cloud-agents-docker
+  namespace: cloud-agents
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 30Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-agents
+  namespace: cloud-agents
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloud-agents
+  template:
+    metadata:
+      labels:
+        app: cloud-agents
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: state-owner
+          image: docker:29.6.1-cli@sha256:862099ada15c669000bef53aa4cb9d821262829f45b0dda2159ccb276443043b
+          command: [sh, -ec, "chown 1000:1000 /data && chmod 700 /data"]
+          volumeMounts:
+            - name: state
+              mountPath: /data
+      containers:
+        - name: host
+          # Build and push this image to your registry before applying.
+          image: ghcr.io/djsydney04/cloud-agents:container
+          env:
+            - name: DOCKER_HOST
+              value: unix:///run/docker/docker.sock
+            - name: CLOUD_AGENTS_CPUS
+              value: "2"
+            - name: CLOUD_AGENTS_MEMORY_MB
+              value: "4096"
+            - name: CLOUD_AGENTS_MAX_JOBS
+              value: "2"
+            - name: CLOUD_AGENTS_MIN_FREE_GB
+              value: "2"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: socket
+              mountPath: /run/docker
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            exec:
+              command: [cloud-agents, doctor]
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 50
+        - name: docker
+          image: docker:29.6.1-dind@sha256:66d292e5c26bd33a6f6f61cacb880de2186339a524ecba1ce098dbbaceed6515
+          args: [dockerd, --host=unix:///run/docker/docker.sock, --group=1000]
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 5Gi
+            limits:
+              cpu: "3"
+              memory: 6Gi
+          volumeMounts:
+            - name: state
+              mountPath: /data
+            - name: socket
+              mountPath: /run/docker
+            - name: docker-data
+              mountPath: /var/lib/docker
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: cloud-agents-state
+        - name: docker-data
+          persistentVolumeClaim:
+            claimName: cloud-agents-docker
+        - name: socket
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

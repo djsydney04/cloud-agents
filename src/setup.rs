@@ -57,8 +57,13 @@ pub async fn prepare(c: &Config) -> Result<()> {
         ] {
             fs::write(context.join(name), bytes)?;
         }
-        let status = Command::new(config::docker_path())
-            .args(["build", "-t", &c.image])
+        let mut command = Command::new(config::docker_path());
+        command.args(["build", "-t", &c.image]);
+        if c.docker_network.as_deref() == Some("host") {
+            // Cloudflare's nested daemon has no bridge forwarding or iptables.
+            command.args(["--network", "host"]);
+        }
+        let status = command
             .arg(&context)
             .kill_on_drop(true)
             .status()
@@ -97,7 +102,7 @@ fn unit_quote(s: &str) -> String {
     )
 }
 fn arguments(c: &Config, binary: &Path) -> Vec<String> {
-    vec![
+    let mut args = vec![
         binary.display().to_string(),
         "--data-dir".into(),
         c.data_dir.display().to_string(),
@@ -105,8 +110,15 @@ fn arguments(c: &Config, binary: &Path) -> Vec<String> {
         c.bind.to_string(),
         "--image".into(),
         c.image.clone(),
-        "serve".into(),
-    ]
+    ];
+    if let Some(path) = &c.docker_data_dir {
+        args.extend(["--docker-data-dir".into(), path.display().to_string()]);
+    }
+    if let Some(network) = &c.docker_network {
+        args.extend(["--docker-network".into(), network.clone()]);
+    }
+    args.push("serve".into());
+    args
 }
 fn service_file(c: &Config) -> Result<std::path::PathBuf> {
     let home = std::env::var("HOME")?;
@@ -263,5 +275,35 @@ mod tests {
     fn service_arguments_cannot_escape_xml_or_systemd() {
         assert_eq!(xml("a<&\"'>"), "a&lt;&amp;&quot;&apos;&gt;");
         assert_eq!(unit_quote("a%\"\\$b"), "\"a%%\\\"\\\\$$b\"");
+    }
+
+    #[test]
+    fn service_preserves_daemon_storage_and_network_options() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Opt {
+            #[command(flatten)]
+            config: Config,
+        }
+        let c = Opt::parse_from([
+            "test",
+            "--data-dir",
+            "/data",
+            "--docker-data-dir",
+            "/daemon data",
+            "--docker-network",
+            "cloud-agents-vpn",
+        ])
+        .config;
+        let args = arguments(&c, Path::new("/bin/cloud-agents"));
+        assert!(
+            args.windows(2)
+                .any(|w| w == ["--docker-data-dir", "/daemon data"])
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w == ["--docker-network", "cloud-agents-vpn"])
+        );
+        assert_eq!(args.last().unwrap(), "serve");
     }
 }

@@ -74,7 +74,8 @@ async fn main() -> Result<()> {
             config::private_dir(&login)?;
             let (uid, gid) = config::identity();
             let user = format!("{uid}:{gid}");
-            let status = tokio::process::Command::new(config::docker_path())
+            let mut command = tokio::process::Command::new(config::docker_path());
+            command
                 .args([
                     "run",
                     "--rm",
@@ -88,8 +89,12 @@ async fn main() -> Result<()> {
                 ])
                 .arg(format!(
                     "type=bind,src={},dst=/home/agent/.codex",
-                    login.display()
-                ))
+                    cli.config.docker_mount_path(&login)?.display()
+                ));
+            if let Some(network) = &cli.config.docker_network {
+                command.args(["--network", network]);
+            }
+            let status = command
                 .args([
                     "--entrypoint",
                     "codex",
@@ -161,9 +166,14 @@ async fn main() -> Result<()> {
             println!(
                 "Cloud Agents: http://{bind}\nRun `cloud-agents token` to connect. Containers survive host restarts."
             );
+            let mut terminate =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
             axum::serve(listener, api::router(e))
-                .with_graceful_shutdown(async {
-                    let _ = tokio::signal::ctrl_c().await;
+                .with_graceful_shutdown(async move {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {},
+                        _ = terminate.recv() => {},
+                    }
                 })
                 .await?;
             task.abort();

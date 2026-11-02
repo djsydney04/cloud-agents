@@ -1,11 +1,11 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::Args;
 use rand::RngCore;
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 #[derive(Clone, Debug, Args)]
 pub struct Config {
@@ -15,17 +15,27 @@ pub struct Config {
         default_value = "~/.local/share/cloud-agents"
     )]
     pub data_dir: PathBuf,
+    /// Absolute data directory as seen by the local Docker daemon.
+    #[arg(long, env = "CLOUD_AGENTS_DOCKER_DATA_DIR")]
+    pub docker_data_dir: Option<PathBuf>,
+    /// Docker network for agent runs; omitted to retain Docker's default bridge.
+    #[arg(long, env = "CLOUD_AGENTS_DOCKER_NETWORK")]
+    pub docker_network: Option<String>,
     #[arg(long, env = "CLOUD_AGENTS_BIND", default_value = "127.0.0.1:7420")]
     pub bind: std::net::SocketAddr,
-    #[arg(long, default_value_t = 4)]
+    #[arg(long, env = "CLOUD_AGENTS_CPUS", default_value_t = 4)]
     pub cpus: u32,
-    #[arg(long, default_value_t = 8192)]
+    #[arg(long, env = "CLOUD_AGENTS_MEMORY_MB", default_value_t = 8192)]
     pub memory_mb: u32,
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, env = "CLOUD_AGENTS_MAX_JOBS", default_value_t = 2)]
     pub max_jobs: usize,
-    #[arg(long, default_value_t = 5)]
+    #[arg(long, env = "CLOUD_AGENTS_MIN_FREE_GB", default_value_t = 5)]
     pub min_free_gb: u64,
-    #[arg(long, default_value = "cloud-agents-sandbox:0.1.0")]
+    #[arg(
+        long,
+        env = "CLOUD_AGENTS_IMAGE",
+        default_value = "cloud-agents-sandbox:0.1.0"
+    )]
     pub image: String,
 }
 pub fn private_dir(p: &Path) -> Result<()> {
@@ -55,8 +65,18 @@ impl Config {
         }
         private_dir(&self.data_dir)?;
         self.data_dir = fs::canonicalize(&self.data_dir)?;
-        if self.data_dir.to_string_lossy().contains([',', '\n']) {
-            bail!("Data path must not contain commas or newlines");
+        validate_mount_path(&self.data_dir)?;
+        if let Some(path) = &self.docker_data_dir {
+            validate_mount_path(path)?;
+        }
+        if self.docker_network.as_ref().is_some_and(|network| {
+            network.is_empty()
+                || !network.starts_with(|c: char| c.is_ascii_alphanumeric())
+                || !network
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c))
+        }) {
+            bail!("Docker network must be a network name or ID");
         }
         if !self.bind.ip().is_loopback() {
             bail!("Bind to loopback; use SSH forwarding or Tailscale Serve for remote access");
@@ -88,6 +108,35 @@ impl Config {
         }
         Ok(())
     }
+
+    pub fn docker_mount_path(&self, path: &Path) -> Result<PathBuf> {
+        let relative = path
+            .strip_prefix(&self.data_dir)
+            .context("Docker mount must be inside the data directory")?;
+        if relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            bail!("Docker mount must not traverse outside the data directory");
+        }
+        let root = self.docker_data_dir.as_ref().unwrap_or(&self.data_dir);
+        let mapped = root.join(relative);
+        validate_mount_path(&mapped)?;
+        Ok(mapped)
+    }
+}
+
+fn validate_mount_path(path: &Path) -> Result<()> {
+    let text = path.to_str().context("Data paths must be valid UTF-8")?;
+    if !path.is_absolute()
+        || text.chars().any(|c| c == ',' || c.is_control())
+        || path.components().any(|c| c == Component::ParentDir)
+    {
+        bail!(
+            "Data paths must be absolute and contain no commas, control characters or parent traversal"
+        );
+    }
+    Ok(())
 }
 
 // Match bind-mounted workspace ownership on both Linux and Docker Desktop.
@@ -107,4 +156,91 @@ pub fn docker_path() -> PathBuf {
         .map(|p| p.join("docker"))
         .find(|p| p.is_file())
         .unwrap_or_else(|| PathBuf::from("docker"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Opt {
+        #[command(flatten)]
+        config: Config,
+    }
+
+    #[test]
+    fn daemon_mount_mapping_preserves_local_paths_and_rejects_escape() {
+        let mut c = Opt::parse_from(["test", "--data-dir", "/container data"]).config;
+        let local = Path::new("/container data/jobs/one/workspace");
+        assert_eq!(c.docker_mount_path(local).unwrap(), local);
+        c.docker_data_dir = Some("/host data".into());
+        assert_eq!(
+            c.docker_mount_path(local).unwrap(),
+            Path::new("/host data/jobs/one/workspace")
+        );
+        assert_eq!(
+            c.docker_mount_path(&c.data_dir.join("login-codex"))
+                .unwrap(),
+            Path::new("/host data/login-codex")
+        );
+        assert_eq!(c.data_dir, Path::new("/container data"));
+        assert!(
+            c.docker_mount_path(Path::new("/container data-other/file"))
+                .is_err()
+        );
+        assert!(
+            c.docker_mount_path(Path::new("/container data/../outside"))
+                .is_err()
+        );
+        assert!(
+            c.docker_mount_path(Path::new("/container data/jobs/bad,readonly"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn daemon_root_validation_does_not_require_a_local_directory() {
+        assert!(validate_mount_path(Path::new("/daemon-only data/cloud-agents")).is_ok());
+        for invalid in [
+            "relative",
+            "/data,readonly",
+            "/data\nother",
+            "/data\tother",
+            "/data/../other",
+        ] {
+            assert!(
+                validate_mount_path(Path::new(invalid)).is_err(),
+                "{invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn public_listener_is_still_rejected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Opt::parse_from([
+            "test",
+            "--data-dir",
+            tmp.path().to_str().unwrap(),
+            "--bind",
+            "0.0.0.0:7420",
+        ])
+        .config;
+        assert!(c.init().unwrap_err().to_string().contains("loopback"));
+    }
+
+    #[test]
+    fn explicit_docker_network_must_be_a_name_or_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut c = Opt::parse_from(["test", "--data-dir", tmp.path().to_str().unwrap()]).config;
+        for network in ["", "--host", "host\nother", "container:other"] {
+            c.docker_network = Some(network.into());
+            assert!(c.init().unwrap_err().to_string().contains("Docker network"));
+        }
+        for network in ["host", "bridge", "none", "private_network.v1-2", "a"] {
+            c.docker_network = Some(network.into());
+            c.init().unwrap();
+        }
+    }
 }
